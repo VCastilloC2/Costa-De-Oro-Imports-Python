@@ -1,4 +1,4 @@
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, urlencode
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from app.core.config import settings
@@ -9,10 +9,14 @@ def to_sqlalchemy_url(url: str, username: str = "", password: str = "") -> str:
         url = "mysql+pymysql://" + url[len("jdbc:mysql://"):]
     elif url.startswith("mysql://"):
         url = "mysql+pymysql://" + url[len("mysql://"):]
-    if url.startswith("mysql+pymysql://") and username:
-        authority = url.split("://", 1)[1].split("/", 1)[0]
-        if "@" not in authority:
-            url = url.replace("mysql+pymysql://", f"mysql+pymysql://{quote_plus(username)}:{quote_plus(password)}@", 1)
+    if url.startswith("mysql+pymysql://"):
+        # serverTimezone es una opción típica de Connector/J, no de PyMySQL.
+        parts = urlsplit(url)
+        query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k.lower() != "servertimezone"]
+        netloc = parts.netloc
+        if username and "@" not in netloc:
+            netloc = f"{quote_plus(username)}:{quote_plus(password)}@{netloc}"
+        url = urlunsplit((parts.scheme, netloc, parts.path, urlencode(query), parts.fragment))
     return url
 
 DATABASE_URL = to_sqlalchemy_url(settings.db_url, settings.db_username, settings.db_password)

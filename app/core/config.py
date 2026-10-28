@@ -6,9 +6,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
     app_name: str = Field("Costa De Oro Imports API", validation_alias=AliasChoices("NombreAplicacion", "APP_NAME"))
     port: int = Field(8080, validation_alias=AliasChoices("PORT", "PuertoServidor"))
-    db_url: str = "jdbc:mysql://localhost:3306/db_beer"
-    db_username: str = ""
-    db_password: str = ""
+    db_url: str = Field("mysql+pymysql://localhost:3306/db_beer", validation_alias=AliasChoices("DATABASE_URL", "DB_URL", "SPRING_DATASOURCE_URL"))
+    db_username: str = Field("", validation_alias=AliasChoices("DB_USERNAME", "SPRING_DATASOURCE_USERNAME"))
+    db_password: str = Field("", validation_alias=AliasChoices("DB_PASSWORD", "SPRING_DATASOURCE_PASSWORD"))
     spring_jpa_hibernate_ddl_auto: str = "validate"
     prediccion_api_url: str | None = None
     prediccion_api_key: str | None = None
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.8-flash"
     mercado_pago_access_token: str | None = None
-    jwt_secret_ecommerce: str = "REPLACE_THIS_SECRET"
+    jwt_secret_ecommerce: str = Field("REPLACE_THIS_SECRET", validation_alias=AliasChoices("JWT_SECRET_ECOMMERCE", "JWT_SECRET"))
     jwt_issuer_ecommerce: str = "CostaDeOroImports"
     frontend_url: str = "http://localhost:3000"
     cors_allowed_origins: str = "http://localhost:3000,http://localhost:8080"
