@@ -6,7 +6,6 @@
 .sts4-cache
 
 ### IntelliJ IDEA ###
-../Costa-De-Oro-Imports-Api-Rest/Costa-De-Oro-Imports-Api-Rest/.idea
 *.iws
 *.iml
 *.ipr
