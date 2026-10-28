@@ -6,6 +6,7 @@ pydantic
 pydantic-settings
 PyJWT[crypto]
 pwdlib[argon2]
+bcrypt
 email-validator
 httpx
 python-multipart

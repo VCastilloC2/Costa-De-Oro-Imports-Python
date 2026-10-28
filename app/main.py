@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
+import logging
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, select
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import hash_password, verify_password, create_token
+from app.core.security import hash_password, verify_password, is_bcrypt_hash, create_token
 from app.dependencies import current_user, admin_user, user_role
 from app.models import Usuario, Rol, Producto
 from app.schemas import LoginRequest, RegisterRequest, AdminCreateRequest, UserResponse, ProductResponse
@@ -21,6 +23,11 @@ app = FastAPI(title=settings.app_name, version="3.1.0",
     redoc_url="/redoc", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
+logger = logging.getLogger(__name__)
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/doc", status_code=307)
 
 @app.get("/health", tags=["Sistema"])
 def health():
@@ -32,6 +39,7 @@ def health_db(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
         return {"status": "ok", "database": "connected"}
     except Exception as exc:
+        logger.exception("Fallo la comprobación de conexión a la base de datos")
         raise HTTPException(503, "Base de datos no disponible") from exc
 
 @app.post("/auth/login", tags=["Autenticación"])
@@ -39,6 +47,9 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(Usuario).where(Usuario.correo == str(payload.username)))
     if not user or not verify_password(payload.password, user.password):
         raise HTTPException(401, "Credenciales inválidas")
+    if not is_bcrypt_hash(user.password):
+        user.password = hash_password(payload.password)
+        db.commit()
     if user.is_enabled is not True or user.account_non_locked is False or user.account_non_expired is False or user.credentials_non_expired is False:
         raise HTTPException(403, "Cuenta deshabilitada, bloqueada o pendiente de aprobación")
     role = db.get(Rol, user.rol_id) if user.rol_id else None
