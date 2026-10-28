@@ -1,0 +1,41 @@
+version: 2
+
+updates:
+  # Dependencias Maven (Java / Spring Boot / Spring AI)
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "daily"
+
+    # Actualizar dependencias directas del pom.xml
+    allow:
+      - dependency-type: "direct"
+
+    # Máximo de Pull Requests abiertos
+    open-pull-requests-limit: 20
+
+    # Ignorar actualizaciones de esta dependencia MCP
+    ignore:
+      - dependency-name: "io.modelcontextprotocol.sdk:mcp-core"
+
+
+  # Dockerfile
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 20
+
+  # docker-compose
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 20
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 20

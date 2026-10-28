@@ -1,0 +1,24 @@
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+../Costa-De-Oro-Imports-Api-Rest/Costa-De-Oro-Imports-Api-Rest/.idea
+*.iws
+*.iml
+*.ipr
+
+
+### Variables de entorno ###
+*.env
+.env
+*.env.docker
+.env.docker
+**/*.env
+*/*.env
+
+### VS Code ###
+.vscode/
