@@ -76,3 +76,9 @@ Rutas adicionales basadas en Spring:
 ## Importante: validación pendiente en entorno real
 
 La predicción usa registros reales de MySQL si están disponibles y recurre al CSV configurado si MySQL falla o no devuelve ventas. Antes de producción, ejecuta las pruebas contra una copia de `db_beer`, revisa que el esquema SQL coincide con `app/models/` y completa los contratos DTO exactos donde Spring usa cargas multipart, pagos Mercado Pago, Cloudinary, correo, OAuth o IA. El endpoint de mapa de ventas indica explícitamente que faltan coordenadas en el modelo y no inventa datos geográficos.
+
+## Despliegue en Vercel con los modelos de predicción
+
+Vercel detecta FastAPI desde `main.py`; `vercel.json` no declara los `builds` ni `routes` antiguos. `requirements.txt` conserva TensorFlow/Keras y PyTorch, y solicita los wheels CPU oficiales de PyTorch para evitar incluir bibliotecas CUDA que la aplicación no usa.
+
+El paquete que reportó el último despliegue mide 7.467,79 MB. Las funciones grandes de Vercel permiten hasta 5 GB, así que además de reducir el paquete, entra a **Project Settings → Environment Variables** y configura `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` y `UV_TORCH_BACKEND=cpu` para Production (y Preview si también despliegas allí); después vuelve a desplegar. Si el paquete todavía supera 5 GB, será necesario alojar el motor de predicción en otro servicio y cambiar las rutas de Vercel para consultarlo; `PREDICCION_API_URL` está disponible en la configuración, pero esa integración remota requiere implementarse. No quites TensorFlow ni PyTorch del servicio que ejecuta la predicción.

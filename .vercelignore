@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 .vscode/
 tests/
+app/tests/
+.pytest_cache/
+.idea/
+.github/
 pytest.ini
 requirements-dev.txt
 check_db.py

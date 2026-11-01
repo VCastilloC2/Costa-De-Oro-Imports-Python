@@ -20,6 +20,8 @@ pandas
 numpy
 scikit-learn
 tensorflow>=2.16,<3
+# Prefer PyTorch's official CPU wheels to avoid bundling CUDA libraries on Vercel.
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.6,<3
 redis
 pytest
