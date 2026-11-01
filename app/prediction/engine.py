@@ -1,4 +1,4 @@
-"""Internal sales forecasting pipeline combining sklearn, TensorFlow/Keras, and PyTorch."""
+"""Internal sales forecasting pipeline combining scikit-learn and TensorFlow/Keras."""
 from __future__ import annotations
 
 from datetime import date

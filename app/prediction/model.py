@@ -1,4 +1,4 @@
-"""Sales forecasting models: scikit-learn, TensorFlow/Keras, and PyTorch."""
+"""Sales forecasting models: scikit-learn and TensorFlow/Keras."""
 from __future__ import annotations
 
 import hashlib
@@ -47,9 +47,9 @@ class SalesRegression:
 
 
 class SalesEnsemble:
-    """Train and combine three models; both neural frameworks are required."""
+    """Train and average the scikit-learn and TensorFlow/Keras forecasts."""
 
-    model_names = ("scikit_learn", "tensorflow_keras", "pytorch")
+    model_names = ("scikit_learn", "tensorflow_keras")
 
     def __init__(self) -> None:
         self.regression = SalesRegression()
@@ -58,8 +58,6 @@ class SalesEnsemble:
         self.y_scaler = StandardScaler()
         self.keras_model = None
         self.tf = None
-        self.torch_model = None
-        self.torch = None
 
     def fit(self, data: pd.DataFrame) -> "SalesEnsemble":
         if data.empty:
@@ -68,11 +66,9 @@ class SalesEnsemble:
         # Import lazily so non-prediction API routes do not pay framework startup cost.
         try:
             import tensorflow as tf
-            import torch
-            from torch import nn
         except ImportError as exc:
             raise RuntimeError(
-                "La predicción requiere TensorFlow y PyTorch. Instala las dependencias de requirements.txt."
+                "La predicción requiere TensorFlow/Keras. Instala las dependencias de requirements.txt."
             ) from exc
 
         self.regression.fit(data)
@@ -98,39 +94,19 @@ class SalesEnsemble:
                 shuffle=False, verbose=0,
             )
 
-        torch.manual_seed(41)
-        self.torch = torch
-        self.torch_model = nn.Sequential(
-            nn.Linear(x_scaled.shape[1], 32), nn.ReLU(),
-            nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 1),
-        ).to(torch.device("cpu"))
-        tx = torch.from_numpy(x_scaled)
-        ty = torch.from_numpy(y_scaled)
-        optimizer = torch.optim.Adam(self.torch_model.parameters(), lr=0.01)
-        loss_fn = nn.MSELoss()
-        self.torch_model.train()
-        for _ in range(60):
-            optimizer.zero_grad()
-            loss = loss_fn(self.torch_model(tx), ty)
-            loss.backward()
-            optimizer.step()
-        self.torch_model.eval()
         return self
 
     def predict_models(self, data: pd.DataFrame) -> dict[str, np.ndarray]:
-        if self.keras_model is None or self.tf is None or self.torch_model is None or self.torch is None:
+        if self.keras_model is None or self.tf is None:
             raise RuntimeError("El ensamble todavía no está entrenado")
         matrix = self.regression._matrix(data).reindex(columns=self.columns, fill_value=0)
         x = matrix.to_numpy(dtype=np.float32)
         x_scaled = self.x_scaler.transform(x).astype(np.float32)
         with self.tf.device("/CPU:0"):
             keras_scaled = self.keras_model(self.tf.convert_to_tensor(x_scaled), training=False).numpy().reshape(-1, 1)
-        with self.torch.no_grad():
-            torch_scaled = self.torch_model(self.torch.from_numpy(x_scaled)).cpu().numpy()
         return {
             "scikit_learn": self.regression.predict(data),
             "tensorflow_keras": np.clip(self.y_scaler.inverse_transform(keras_scaled).ravel(), 0.0, None),
-            "pytorch": np.clip(self.y_scaler.inverse_transform(torch_scaled).ravel(), 0.0, None),
         }
 
     def predict(self, data: pd.DataFrame) -> np.ndarray:
