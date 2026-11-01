@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 SQLAlchemy
+mysql-connector-python
 PyMySQL
 pydantic
 pydantic-settings
@@ -14,3 +15,11 @@ cloudinary
 mercadopago
 google-genai
 alembic
+python-dotenv
+pandas
+numpy
+scikit-learn
+tensorflow>=2.16,<3
+torch>=2.6,<3
+redis
+pytest

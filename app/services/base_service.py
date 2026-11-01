@@ -45,6 +45,7 @@ class BaseService:
 
     def update(self, db: Session, item_id: int, data: dict):
         item = self.get_item(db, item_id)
+        old_email = getattr(item, "correo", None)
         allowed = {c.name for c in self.model.__table__.columns if not c.primary_key and not c.computed}
         for key, value in data.items():
             if key in allowed:
@@ -58,6 +59,13 @@ class BaseService:
         except Exception as exc:
             db.rollback()
             raise HTTPException(status_code=409, detail="No se pudo actualizar el registro; revisa restricciones de la base de datos") from exc
+        if self.model.__name__ == "Usuario":
+            from app.core.cache import cache_delete, credential_cache_key, user_cache_key
+            cache_delete(user_cache_key(item_id))
+            if old_email:
+                cache_delete(credential_cache_key(old_email))
+            if item.correo:
+                cache_delete(credential_cache_key(item.correo))
         return self.serialize(item)
 
     def delete(self, db: Session, item_id: int):
@@ -68,4 +76,9 @@ class BaseService:
         except Exception as exc:
             db.rollback()
             raise HTTPException(status_code=409, detail="No se pudo eliminar: el registro puede estar relacionado con otros datos") from exc
+        if self.model.__name__ == "Usuario":
+            from app.core.cache import cache_delete, credential_cache_key, user_cache_key
+            cache_delete(user_cache_key(item_id))
+            if item.correo:
+                cache_delete(credential_cache_key(item.correo))
         return {"success": True, "mensaje": "Registro eliminado", "id": item_id}
