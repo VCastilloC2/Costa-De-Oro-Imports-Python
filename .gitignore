@@ -21,3 +21,9 @@
 
 ### VS Code ###
 .vscode/
+
+# Python environments, bytecode, and local package cache
+.venv*/
+__pycache__/
+*.py[cod]
+.uv-cache/

@@ -57,6 +57,7 @@ class SalesEnsemble:
         self.x_scaler = StandardScaler()
         self.y_scaler = StandardScaler()
         self.keras_model = None
+        self.tf = None
         self.torch_model = None
         self.torch = None
 
@@ -75,6 +76,7 @@ class SalesEnsemble:
             ) from exc
 
         self.regression.fit(data)
+        self.tf = tf
         matrix = self.regression._matrix(data)
         self.columns = list(matrix.columns)
         x = matrix.to_numpy(dtype=np.float32)
@@ -83,24 +85,25 @@ class SalesEnsemble:
         y_scaled = self.y_scaler.fit_transform(y).astype(np.float32)
 
         tf.keras.utils.set_random_seed(41)
-        self.keras_model = tf.keras.Sequential([
-            tf.keras.layers.Input(shape=(x_scaled.shape[1],)),
-            tf.keras.layers.Dense(32, activation="relu"),
-            tf.keras.layers.Dense(16, activation="relu"),
-            tf.keras.layers.Dense(1),
-        ])
-        self.keras_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.01), loss="mse")
-        self.keras_model.fit(
-            x_scaled, y_scaled, epochs=40, batch_size=min(16, max(1, len(y_scaled))),
-            shuffle=False, verbose=0,
-        )
+        with tf.device("/CPU:0"):
+            self.keras_model = tf.keras.Sequential([
+                tf.keras.layers.Input(shape=(x_scaled.shape[1],)),
+                tf.keras.layers.Dense(32, activation="relu"),
+                tf.keras.layers.Dense(16, activation="relu"),
+                tf.keras.layers.Dense(1),
+            ])
+            self.keras_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.01), loss="mse")
+            self.keras_model.fit(
+                x_scaled, y_scaled, epochs=40, batch_size=min(16, max(1, len(y_scaled))),
+                shuffle=False, verbose=0,
+            )
 
         torch.manual_seed(41)
         self.torch = torch
         self.torch_model = nn.Sequential(
             nn.Linear(x_scaled.shape[1], 32), nn.ReLU(),
             nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 1),
-        )
+        ).to(torch.device("cpu"))
         tx = torch.from_numpy(x_scaled)
         ty = torch.from_numpy(y_scaled)
         optimizer = torch.optim.Adam(self.torch_model.parameters(), lr=0.01)
@@ -115,12 +118,13 @@ class SalesEnsemble:
         return self
 
     def predict_models(self, data: pd.DataFrame) -> dict[str, np.ndarray]:
-        if self.keras_model is None or self.torch_model is None or self.torch is None:
+        if self.keras_model is None or self.tf is None or self.torch_model is None or self.torch is None:
             raise RuntimeError("El ensamble todavía no está entrenado")
         matrix = self.regression._matrix(data).reindex(columns=self.columns, fill_value=0)
         x = matrix.to_numpy(dtype=np.float32)
         x_scaled = self.x_scaler.transform(x).astype(np.float32)
-        keras_scaled = self.keras_model.predict(x_scaled, verbose=0).reshape(-1, 1)
+        with self.tf.device("/CPU:0"):
+            keras_scaled = self.keras_model(self.tf.convert_to_tensor(x_scaled), training=False).numpy().reshape(-1, 1)
         with self.torch.no_grad():
             torch_scaled = self.torch_model(self.torch.from_numpy(x_scaled)).cpu().numpy()
         return {
