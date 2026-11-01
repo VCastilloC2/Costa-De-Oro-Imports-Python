@@ -68,11 +68,11 @@ def test_sklearn_model_fits_and_predicts_nonnegative_values():
     assert regression_metrics(data.venta_total, predictions)["n"] == len(data)
 
 
-def test_prediction_uses_sklearn_tensorflow_keras_and_pytorch():
+def test_prediction_uses_sklearn_and_tensorflow_keras():
     data = _training_data(12)
     model = train_sales_ensemble(data)
     predictions = model.predict_models(data)
-    assert set(predictions) == {"scikit_learn", "tensorflow_keras", "pytorch"}
+    assert set(predictions) == {"scikit_learn", "tensorflow_keras"}
     assert all(np.isfinite(values).all() and (values >= 0).all() for values in predictions.values())
     assert np.isfinite(model.predict(data)).all()
 
@@ -159,7 +159,7 @@ def test_generate_route_returns_forecast_without_503(client, db_session, seeded_
     payload = response.json()
     assert len(payload["serie"]) == 40
     assert all(point["prediccion"] >= 0 for point in payload["serie"])
-    assert payload["metricas"]["modelos"] == ["scikit_learn", "tensorflow_keras", "pytorch"]
+    assert payload["metricas"]["modelos"] == ["scikit_learn", "tensorflow_keras"]
 
 
 def test_generate_forecast_rejects_empty_history():

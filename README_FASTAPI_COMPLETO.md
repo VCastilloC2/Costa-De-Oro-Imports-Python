@@ -6,11 +6,11 @@ Migración modular de la API de Costa De Oro Imports desde Spring Boot. Se manti
 
 - `app/models/` contiene los modelos SQLAlchemy; `app/schemas/` contiene los contratos Pydantic.
 - `app/api/v1/endpoints/auth.py` reúne login, registro y OAuth Google/Apple; `admin.py` reúne rutas administrativas y predicción.
-- `app/prediction/` carga y procesa las ventas con Pandas/NumPy y combina Scikit-Learn, TensorFlow/Keras y PyTorch.
+- `app/prediction/` carga y procesa las ventas con Pandas/NumPy y combina Scikit-Learn con TensorFlow/Keras.
 - `app/core/cache.py` usa Valkey mediante `VALKEY_URL` (URI estándar `redis://` o `rediss://`). El caché se puede omitir en desarrollo y usa TTL de 30 segundos para credenciales/perfil de usuario y 300 segundos para dashboards por defecto.
 - `app/tests/` mantiene pruebas aisladas con SQLite; ninguna prueba abre conexión con el `.env` real.
 
-El motor ajusta tres modelos sobre el historial y calcula el promedio de sus proyecciones mensuales. Usa TensorFlow con su API Keras y PyTorch; ambos se ejecutan en CPU. Las dependencias están en `requirements.txt` y `.python-version` fija Python 3.13, compatible con los dos frameworks.
+El motor ajusta una regresión de Scikit-Learn y una red neuronal TensorFlow/Keras sobre el historial, y promedia sus proyecciones mensuales. TensorFlow ejecuta en CPU. Las dependencias están en `requirements.txt` y `.python-version` fija Python 3.13.
 
 El chatbot administrativo usa `POST /admin/chatbot/chat`, requiere JWT de un usuario con rol `ADMIN` y `GEMINI_API_KEY` configurada. El backend consulta datos resumidos de la base de datos en cada mensaje (inventario, ventas agregadas y catálogo); solo envía ese contexto y hasta 12 mensajes anteriores a Gemini. La API del chatbot es de solo lectura y no envía contraseñas ni datos personales.
 
@@ -38,7 +38,7 @@ Pruebas: `python -m pytest app/tests`.
 ```powershell
 py -3.13 -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
 # Edita .env y configura DB_URL, DB_USERNAME, DB_PASSWORD y JWT_SECRET_ECOMMERCE
 uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
@@ -71,7 +71,7 @@ Rutas adicionales basadas en Spring:
 - Gráficas: `/api/graficas/*`.
 - Reportes: `/api/reportes/*`.
 - Búsqueda: `/api/search/universal`.
-- Predicción: `/admin/prediccion/*` (ensamble interno de Scikit-Learn, TensorFlow/Keras y PyTorch).
+- Predicción: `/admin/prediccion/*` (ensamble interno de Scikit-Learn y TensorFlow/Keras).
 
 ## Importante: validación pendiente en entorno real
 
@@ -79,6 +79,12 @@ La predicción usa registros reales de MySQL si están disponibles y recurre al 
 
 ## Despliegue en Vercel con los modelos de predicción
 
-Vercel detecta FastAPI desde `main.py`; `vercel.json` no declara los `builds` ni `routes` antiguos. `requirements.txt` conserva TensorFlow/Keras y PyTorch, y solicita los wheels CPU oficiales de PyTorch para evitar incluir bibliotecas CUDA que la aplicación no usa.
+Vercel detecta FastAPI desde `main.py`; `vercel.json` no declara los `builds` ni `routes` antiguos. `requirements.txt` conserva TensorFlow/Keras como único framework neuronal.
 
-El paquete que reportó el último despliegue mide 7.467,79 MB. Las funciones grandes de Vercel permiten hasta 5 GB, así que además de reducir el paquete, entra a **Project Settings → Environment Variables** y configura `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` y `UV_TORCH_BACKEND=cpu` para Production (y Preview si también despliegas allí); después vuelve a desplegar. Si el paquete todavía supera 5 GB, será necesario alojar el motor de predicción en otro servicio y cambiar las rutas de Vercel para consultarlo; `PREDICCION_API_URL` está disponible en la configuración, pero esa integración remota requiere implementarse. No quites TensorFlow ni PyTorch del servicio que ejecuta la predicción.
+El despliegue con TensorFlow y PyTorch reportó 3.045,48 MB. PyTorch ya se quitó, pero hay que volver a desplegar para medir el nuevo tamaño. TensorFlow por sí solo todavía puede superar el límite estándar, por lo que conserva la opción de funciones grandes de Vercel (hasta 5 GB en beta). Si el build sigue mostrando el límite estándar, comprueba estos ajustes en el Dashboard:
+
+1. En **Project Settings → Build and Deployment → Install Command**, apaga **Override** o selecciona el comando predeterminado. No escribas un comando personalizado; el error actual indica que ese override impide la optimización del paquete.
+2. En **Project Settings → Environment Variables**, asegúrate de que `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` esté habilitada para **Production**. Configurarla solo en Preview o en el `.env` local no habilita funciones grandes en producción.
+3. Guarda los cambios y crea un despliegue nuevo.
+
+Si después de esos pasos Vercel sigue rechazando el paquete, activa temporalmente `VERCEL_ANALYZE_BUILD_OUTPUT=1` para que el siguiente log desglose el tamaño por dependencia. Si el paquete realmente queda por encima de 5 GB, habrá que alojar el motor de predicción en otro servicio y cambiar las rutas de Vercel para consultarlo; `PREDICCION_API_URL` está disponible en la configuración, pero esa integración remota requiere implementarse.
