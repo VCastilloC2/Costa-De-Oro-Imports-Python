@@ -1,0 +1,1 @@
+"""Internal sales prediction pipeline."""

@@ -12,12 +12,17 @@ class Settings(BaseSettings):
     db_url: str = Field("mysql+pymysql://localhost:3306/db_beer", validation_alias=AliasChoices("DATABASE_URL", "DB_URL", "SPRING_DATASOURCE_URL"))
     db_username: str = Field("", validation_alias=AliasChoices("DB_USERNAME", "SPRING_DATASOURCE_USERNAME"))
     db_password: str = Field("", validation_alias=AliasChoices("DB_PASSWORD", "SPRING_DATASOURCE_PASSWORD"))
+    valkey_url: str | None = Field(default=None, validation_alias=AliasChoices("VALKEY_URL", "REDIS_URL"))
+    valkey_cache_ttl_seconds: int = Field(300, ge=1, le=86400, validation_alias=AliasChoices("VALKEY_CACHE_TTL_SECONDS"))
+    prediction_data_source: str = Field("database", validation_alias=AliasChoices("PREDICTION_DATA_SOURCE"))
+    prediction_dataset_csv: Path = Field(PROJECT_ROOT / "app" / "prediction" / "data" / "costa_de_oro_ventas.csv", validation_alias=AliasChoices("PREDICTION_DATASET_CSV"))
     spring_jpa_hibernate_ddl_auto: str = "validate"
     prediccion_api_url: str | None = None
     prediccion_api_key: str | None = None
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_allowed_client_ids: str | None = None
+    apple_allowed_client_ids: str | None = None
     remember_me_key: str | None = None
     remember_me_token: str | None = None
     password_url_recaptcha: str = "https://www.google.com/recaptcha/api/siteverify"

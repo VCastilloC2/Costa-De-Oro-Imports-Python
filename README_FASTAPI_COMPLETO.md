@@ -2,6 +2,26 @@
 
 Migración modular de la API de Costa De Oro Imports desde Spring Boot. Se mantienen los nombres de las tablas y las rutas administrativas principales; los controladores de administración requieren JWT y rol `ADMIN`.
 
+## Arquitectura actualizada
+
+- `app/models/` contiene los modelos SQLAlchemy; `app/schemas/` contiene los contratos Pydantic.
+- `app/api/v1/endpoints/auth.py` reúne login, registro y OAuth Google/Apple; `admin.py` reúne rutas administrativas y predicción.
+- `app/prediction/` carga y procesa las ventas con Pandas/NumPy y combina Scikit-Learn, TensorFlow/Keras y PyTorch.
+- `app/core/cache.py` usa Valkey mediante `VALKEY_URL` (URI estándar `redis://` o `rediss://`). El caché se puede omitir en desarrollo y usa TTL de 30 segundos para credenciales/perfil de usuario y 300 segundos para dashboards por defecto.
+- `app/tests/` mantiene pruebas aisladas con SQLite; ninguna prueba abre conexión con el `.env` real.
+
+El motor ajusta tres modelos sobre el historial y calcula el promedio de sus proyecciones mensuales. Usa TensorFlow con su API Keras y PyTorch; ambos se ejecutan en CPU. Las dependencias están en `requirements.txt` y `.python-version` fija Python 3.13, compatible con los dos frameworks.
+
+### Variables nuevas
+
+Configura `VALKEY_URL` con la URI privada de Layerbase y no la subas al repositorio. Para OAuth configura `GOOGLE_ALLOWED_CLIENT_IDS` y `APPLE_ALLOWED_CLIENT_IDS` con los audiencias/client IDs de tus aplicaciones. La API verifica los ID tokens firmados contra los JWKS oficiales; no acepta tokens OAuth sin validar.
+
+Por defecto, `PREDICTION_DATA_SOURCE=database` intenta obtener ventas de `compra`, `detalle_venta`, `producto`, `categoria`, `usuario` y `empresa`. Si MySQL falla o no devuelve compras pagadas, el motor cambia automáticamente al CSV incluido. `PREDICTION_DATA_SOURCE=csv` fuerza el modo offline para desarrollo.
+
+Registro directo requiere `tipoIdentificacion`, `numeroIdentificacion`, `nombres`, `apellidos`, `telefono`, `correo` y `password`. En Google/Apple, el ID token aporta el correo verificado; para crear una cuenta nueva, el formulario social también debe enviar esos siete campos y el correo debe coincidir con el token.
+
+Pruebas: `python -m pytest app/tests`.
+
 ## Ejecutar
 
 ```powershell
