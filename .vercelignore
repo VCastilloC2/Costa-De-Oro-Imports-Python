@@ -8,3 +8,7 @@ pytest.ini
 requirements-dev.txt
 check_db.py
 .env
+.git
+.env
+/test
+*.db
