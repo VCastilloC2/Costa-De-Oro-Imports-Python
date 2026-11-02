@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import secrets
 from functools import lru_cache
 from time import perf_counter
 from typing import Any
@@ -51,16 +52,29 @@ def cache_health() -> dict[str, Any]:
     if client is None:
         return {"status": "unavailable", "provider": "valkey"}
     started = perf_counter()
+    probe_key = f"health:write_probe:{secrets.token_hex(16)}"
+    probe_value = secrets.token_urlsafe(16)
     try:
         client.ping()
+        if not client.set(probe_key, probe_value, ex=15):
+            raise RuntimeError("Valkey no confirmó la escritura de prueba")
+        if client.get(probe_key) != probe_value:
+            raise RuntimeError("Valkey no devolvió la clave de prueba")
         return {
             "status": "ok",
             "provider": "valkey",
+            "write_test": True,
             "latency_ms": round((perf_counter() - started) * 1000, 2),
         }
     except Exception as exc:
         logger.warning("La comprobación de Valkey falló (%s)", type(exc).__name__)
-        return {"status": "unavailable", "provider": "valkey"}
+        return {"status": "unavailable", "provider": "valkey", "write_test": False}
+    finally:
+        try:
+            client.delete(probe_key)
+        except Exception:
+            # The probe also expires automatically after 15 seconds.
+            logger.warning("No se pudo eliminar la clave temporal de comprobación Valkey")
 
 
 def cache_get_json(key: str) -> Any | None:
