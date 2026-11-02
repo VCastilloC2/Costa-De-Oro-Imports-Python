@@ -9,7 +9,6 @@ import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
-
 from app.core.cache import cache_get_json, cache_set_json, token_cache_key, user_cache_key
 from app.core.config import settings
 from app.core.database import get_db

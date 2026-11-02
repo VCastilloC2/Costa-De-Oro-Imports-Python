@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     jwt_secret_ecommerce: str = Field("REPLACE_THIS_SECRET", validation_alias=AliasChoices("JWT_SECRET_ECOMMERCE", "JWT_SECRET"))
     jwt_issuer_ecommerce: str = "CostaDeOroImports"
     frontend_url: str = "http://localhost:3000"
-    cors_allowed_origins: str = "http://localhost:3000,http://localhost:8080,https://costa-de-oro-imports-python.onrender.com"
+    cors_allowed_origins: str = "http://localhost:3000,http://localhost:8080,https://costa-de-oro-imports-python.onrender.com,https://costa-de-oro-imports-python-vatg.vercel.app"
     springdoc_api_docs_enabled: bool = True
     springdoc_swagger_ui_enabled: bool = True
     mcp_client_enabled: bool = False
