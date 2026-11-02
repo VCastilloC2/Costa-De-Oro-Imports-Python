@@ -91,6 +91,15 @@ def forecast_month(db: Session, year: int, month: int, today: date | None = None
     if not 1 <= month <= 12:
         raise ValueError("Mes fuera del rango válido (1-12)")
     data = load_dataset(db, today or date.today())
+    return predict_month_from_data(data, year, month)
+
+
+def predict_month_from_data(data: pd.DataFrame, year: int, month: int) -> dict:
+    """Predict a month from an already loaded dataset to share work with metadata."""
+    if not 2019 <= year <= 2035:
+        raise ValueError("Año fuera del rango válido (2019-2035)")
+    if not 1 <= month <= 12:
+        raise ValueError("Mes fuera del rango válido (1-12)")
     if data.empty:
         raise ValueError("No hay compras pagadas suficientes para generar una predicción")
     model = train_sales_ensemble(data)
