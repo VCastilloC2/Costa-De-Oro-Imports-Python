@@ -58,7 +58,7 @@ def _issue_token(user: Usuario, role_name: str) -> dict:
             "tipo_identificacion": user.tipo_identificacion,
         },
         "rol": role_name,
-    }, 30)
+    }, settings.valkey_auth_ttl_seconds)
     cache_set_json(token_cache_key(token), {"usuario_id": user_id, "rol": role_name}, 3600)
     return {"accessToken": token, "token_type": "bearer", "expires_in": 3600, "usuario": _user_data(user, role_name)}
 
@@ -104,7 +104,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         db.commit()
     cache_set_json(credential_cache_key(email), {
         "usuario_id": int(user.usuario_id), "password_hash": user.password,
-    }, 30)
+    }, settings.valkey_auth_ttl_seconds)
     return _issue_token(user, role_name)
 
 

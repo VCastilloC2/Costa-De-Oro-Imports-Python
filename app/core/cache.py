@@ -5,7 +5,9 @@ import hashlib
 import json
 import logging
 from functools import lru_cache
+from time import perf_counter
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.core.config import settings
 
@@ -19,20 +21,46 @@ def get_cache_client():
     try:
         import redis
         url = settings.valkey_url.strip()
+        # Layerbase Quick Connect supplies rediss://; keep TLS enabled.
         if url.startswith("valkey://"):
             url = "redis://" + url[len("valkey://"):]
         elif url.startswith("valkeys://"):
             url = "rediss://" + url[len("valkeys://"):]
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+            raise ValueError("VALKEY_URL debe usar redis:// o rediss:// e incluir un host")
         return redis.Redis.from_url(
             url,
             decode_responses=True,
-            socket_connect_timeout=2,
+            # Layerbase's free Valkey can sleep; allow its documented wake-up window.
+            socket_connect_timeout=5,
             socket_timeout=2,
             health_check_interval=30,
         )
-    except Exception:
-        logger.exception("No fue posible inicializar el cliente Valkey")
+    except Exception as exc:
+        # Do not log the connection URL because it contains the database password.
+        logger.error("No fue posible inicializar Valkey (%s)", type(exc).__name__)
         return None
+
+
+def cache_health() -> dict[str, Any]:
+    """Check the remote Valkey connection without exposing its URL or credentials."""
+    if not settings.valkey_url:
+        return {"status": "not_configured", "provider": "valkey"}
+    client = get_cache_client()
+    if client is None:
+        return {"status": "unavailable", "provider": "valkey"}
+    started = perf_counter()
+    try:
+        client.ping()
+        return {
+            "status": "ok",
+            "provider": "valkey",
+            "latency_ms": round((perf_counter() - started) * 1000, 2),
+        }
+    except Exception as exc:
+        logger.warning("La comprobación de Valkey falló (%s)", type(exc).__name__)
+        return {"status": "unavailable", "provider": "valkey"}
 
 
 def cache_get_json(key: str) -> Any | None:
@@ -52,7 +80,11 @@ def cache_set_json(key: str, value: Any, ttl: int | None = None) -> bool:
     if client is None:
         return False
     try:
-        client.set(key, json.dumps(value, separators=(",", ":")), ex=ttl or settings.valkey_cache_ttl_seconds)
+        client.set(
+            key,
+            json.dumps(value, separators=(",", ":")),
+            ex=ttl if ttl is not None else settings.valkey_cache_ttl_seconds,
+        )
         return True
     except Exception:
         logger.warning("Valkey no disponible al escribir caché", exc_info=True)

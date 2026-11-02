@@ -17,7 +17,7 @@ from app.models import Rol, Usuario
 
 security = HTTPBearer(auto_error=False)
 DB = Annotated[Session, Depends(get_db)]
-USER_TTL = 30
+USER_TTL = settings.valkey_auth_ttl_seconds
 
 
 def _token_fingerprint(token: str) -> str:
