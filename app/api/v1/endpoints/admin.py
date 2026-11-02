@@ -4,7 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import admin_user
-from app.core.cache import cache_delete, cache_get_json, cache_set_json, user_cache_key
+from app.core.cache import (
+    cache_auth_credentials, cache_auth_user, cache_delete, cache_get_json,
+    cache_set_json, user_cache_key,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
@@ -71,6 +74,8 @@ def create_admin_user(
     except Exception as exc:
         db.rollback()
         raise HTTPException(409, "No se pudo crear el administrador; revisa correo o teléfono duplicado") from exc
+    cache_auth_user(user, "ADMIN")
+    cache_auth_credentials(user.correo, int(user.usuario_id), user.password)
     return {"success": True, "mensaje": "Administrador creado", "usuarioId": user.usuario_id}
 
 

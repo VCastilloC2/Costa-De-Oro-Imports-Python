@@ -128,5 +128,45 @@ def credential_cache_key(email: str) -> str:
     return "auth:credential:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def cache_auth_user(user: Any, role_name: str, ttl: int | None = None) -> bool:
+    """Cache the profile and authorization flags, never the password."""
+    fields = (
+        "usuario_id", "account_non_expired", "account_non_locked", "credentials_non_expired",
+        "is_enabled", "empresa_id", "rol_id", "numero_identificacion", "telefono", "correo",
+        "direccion", "apellidos", "nombres", "imagen", "tipo_identificacion",
+    )
+    snapshot = {field: getattr(user, field, None) for field in fields}
+    return cache_set_json(
+        user_cache_key(int(user.usuario_id)),
+        {"usuario": snapshot, "rol": role_name},
+        ttl if ttl is not None else settings.valkey_auth_ttl_seconds,
+    )
+
+
+def cache_auth_credentials(email: str, user_id: int, password_hash: str | None) -> bool:
+    """Store a BCrypt hash for login lookup; never store or log a plaintext password."""
+    if not password_hash or not password_hash.startswith(("$2a$", "$2b$", "$2y$")):
+        return False
+    return cache_set_json(
+        credential_cache_key(email),
+        {"usuario_id": int(user_id), "password_hash": password_hash},
+        settings.valkey_auth_ttl_seconds,
+    )
+
+
+def cache_auth_token(token: str, user_id: int, role_name: str, ttl: int) -> bool:
+    """Cache only a digest-keyed session record, not the bearer token itself."""
+    return cache_set_json(
+        token_cache_key(token),
+        {"usuario_id": int(user_id), "rol": role_name},
+        max(1, int(ttl)),
+    )
+
+
+def revoked_token_cache_key(token: str) -> str:
+    return "auth:revoked:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def revoke_token(token: str, ttl: int = 3600) -> None:
-    cache_set_json("auth:revoked:" + hashlib.sha256(token.encode("utf-8")).hexdigest(), True, ttl)
+    cache_delete(token_cache_key(token))
+    cache_set_json(revoked_token_cache_key(token), True, max(1, int(ttl)))

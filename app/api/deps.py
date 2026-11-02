@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 from typing import Annotated
-import hashlib
 import time
 
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
-from app.core.cache import cache_get_json, cache_set_json, token_cache_key, user_cache_key
+from app.core.cache import (
+    cache_auth_token, cache_auth_user, cache_get_json, revoked_token_cache_key,
+    token_cache_key, user_cache_key,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import decode_token
@@ -20,25 +22,13 @@ DB = Annotated[Session, Depends(get_db)]
 USER_TTL = settings.valkey_auth_ttl_seconds
 
 
-def _token_fingerprint(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
 def _is_revoked(token: str) -> bool:
-    return bool(cache_get_json(f"auth:revoked:{_token_fingerprint(token)}"))
+    return bool(cache_get_json(revoked_token_cache_key(token)))
 
 
 def _valid_account(user: Usuario) -> bool:
     return (user.is_enabled is True and user.account_non_expired is not False
             and user.account_non_locked is not False and user.credentials_non_expired is not False)
-
-
-def _cache_user(user: Usuario, role_name: str) -> None:
-    fields = ("usuario_id", "account_non_expired", "account_non_locked", "credentials_non_expired",
-              "is_enabled", "empresa_id", "rol_id", "numero_identificacion", "telefono", "correo",
-              "direccion", "apellidos", "nombres", "imagen", "tipo_identificacion")
-    data = {name: getattr(user, name) for name in fields}
-    cache_set_json(user_cache_key(int(user.usuario_id)), {"usuario": data, "rol": role_name}, USER_TTL)
 
 
 def current_user(
@@ -55,6 +45,7 @@ def current_user(
         user_id = int(payload["sub"])
     except (jwt.PyJWTError, ValueError, KeyError, TypeError):
         raise HTTPException(401, "Token inválido o expirado")
+    token_expires = max(1, int(payload["exp"] - time.time()))
 
     cached_session = cache_get_json(token_cache_key(token))
     if cached_session and int(cached_session.get("usuario_id", -1)) != user_id:
@@ -65,6 +56,8 @@ def current_user(
         user._cached_role = cached.get("rol", "")
         if not _valid_account(user):
             raise HTTPException(401, "Usuario no autorizado o cuenta pendiente de activación")
+        if cached_session is None:
+            cache_auth_token(token, user_id, str(user._cached_role), token_expires)
         return user
 
     user = db.get(Usuario, user_id)
@@ -72,9 +65,9 @@ def current_user(
         raise HTTPException(401, "Usuario no autorizado o cuenta pendiente de activación")
     role = db.get(Rol, user.rol_id) if user.rol_id else None
     role_name = str(role.rol) if role and role.rol else ""
-    _cache_user(user, role_name)
-    token_expires = max(1, int(payload["exp"] - time.time()))
-    cache_set_json(token_cache_key(token), {"usuario_id": user_id, "rol": role_name}, token_expires)
+    cache_auth_user(user, role_name, USER_TTL)
+    if cached_session is None:
+        cache_auth_token(token, user_id, role_name, token_expires)
     return user
 
 

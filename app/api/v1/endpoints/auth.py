@@ -1,7 +1,6 @@
 """Password and OAuth authentication endpoints."""
 from __future__ import annotations
 
-import hashlib
 import time
 
 import jwt
@@ -10,7 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_user, security
-from app.core.cache import cache_delete, cache_get_json, cache_set_json, credential_cache_key, revoke_token, token_cache_key, user_cache_key
+from app.core.cache import (
+    cache_auth_credentials, cache_auth_user, cache_get_json, cache_set_json,
+    credential_cache_key, revoke_token, token_cache_key, user_cache_key,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_token, hash_password, verify_password, is_bcrypt_hash
@@ -36,29 +38,27 @@ def _user_data(user: Usuario, role_name: str) -> dict:
     }
 
 
-def _issue_token(user: Usuario, role_name: str) -> dict:
+def _issue_token(user: Usuario, role_name: str, cached_password_hash: str | None = None) -> dict:
     token = create_token(str(user.usuario_id), role_name)
     user_id = int(user.usuario_id)
-    cache_set_json(user_cache_key(user_id), {
-        "usuario": {
-            "usuario_id": user_id,
-            "account_non_expired": user.account_non_expired,
-            "account_non_locked": user.account_non_locked,
-            "credentials_non_expired": user.credentials_non_expired,
-            "is_enabled": user.is_enabled,
-            "empresa_id": user.empresa_id,
-            "rol_id": user.rol_id,
-            "numero_identificacion": user.numero_identificacion,
-            "telefono": user.telefono,
-            "correo": user.correo,
-            "direccion": user.direccion,
-            "apellidos": user.apellidos,
-            "nombres": user.nombres,
-            "imagen": user.imagen,
-            "tipo_identificacion": user.tipo_identificacion,
-        },
-        "rol": role_name,
-    }, settings.valkey_auth_ttl_seconds)
+    user_fields = (
+        "usuario_id", "account_non_expired", "account_non_locked", "credentials_non_expired",
+        "is_enabled", "empresa_id", "rol_id", "numero_identificacion", "telefono", "correo",
+        "direccion", "apellidos", "nombres", "imagen", "tipo_identificacion",
+    )
+    user_snapshot = {field: getattr(user, field, None) for field in user_fields}
+    cache_set_json(
+        user_cache_key(user_id),
+        {"usuario": user_snapshot, "rol": role_name},
+        settings.valkey_auth_ttl_seconds,
+    )
+    password_hash = getattr(user, "password", None) or cached_password_hash
+    if password_hash and is_bcrypt_hash(password_hash):
+        cache_set_json(
+            credential_cache_key(user.correo),
+            {"usuario_id": user_id, "password_hash": password_hash},
+            settings.valkey_auth_ttl_seconds,
+        )
     cache_set_json(token_cache_key(token), {"usuario_id": user_id, "rol": role_name}, 3600)
     return {"accessToken": token, "token_type": "bearer", "expires_in": 3600, "usuario": _user_data(user, role_name)}
 
@@ -102,10 +102,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     if not used_cached_credentials and not is_bcrypt_hash(user.password):
         user.password = hash_password(payload.password)
         db.commit()
-    cache_set_json(credential_cache_key(email), {
-        "usuario_id": int(user.usuario_id), "password_hash": user.password,
-    }, settings.valkey_auth_ttl_seconds)
-    return _issue_token(user, role_name)
+    return _issue_token(
+        user,
+        role_name,
+        cached_credentials.get("password_hash") if used_cached_credentials and cached_credentials else None,
+    )
 
 
 @router.post("/auth/registro", status_code=201, response_model=UserResponse)
@@ -132,7 +133,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     except Exception as exc:
         db.rollback()
         raise HTTPException(409, "No fue posible registrar el usuario; revisa correo, teléfono e identificación") from exc
-    cache_delete(user_cache_key(int(user.usuario_id)))
+    cache_auth_user(user, role_name)
+    cache_auth_credentials(user.correo, int(user.usuario_id), user.password)
     return user
 
 
@@ -233,7 +235,6 @@ def logout(
             revoke_token(credentials.credentials, ttl)
         except Exception:
             pass
-    cache_delete(user_cache_key(int(user.usuario_id)))
     return {"success": True, "mensaje": "Sesión cerrada"}
 
 

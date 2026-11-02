@@ -131,6 +131,9 @@ def crear_cliente(data: dict, db: Session = Depends(get_db)):
     u=Usuario(**data);db.add(u)
     try: db.commit();db.refresh(u)
     except Exception as exc: db.rollback();raise HTTPException(409,"No se pudo crear cliente") from exc
+    from app.core.cache import cache_auth_credentials, cache_auth_user
+    cache_auth_user(u, role.rol)
+    cache_auth_credentials(u.correo, int(u.usuario_id), u.password)
     return {"success":True,"mensaje":"Cliente creado; si requiere validación, queda pendiente de activación","id":u.usuario_id}
 
 @router.put("/admin/clientes/{item_id}", dependencies=ADMIN)
@@ -203,6 +206,9 @@ def crear_proveedor(data:dict,db:Session=Depends(get_db)):
     db.add(u)
     try:db.commit();db.refresh(u)
     except Exception as exc:db.rollback();raise HTTPException(409,"No se pudo crear proveedor") from exc
+    from app.core.cache import cache_auth_credentials, cache_auth_user
+    cache_auth_user(u, "PROVEEDOR")
+    cache_auth_credentials(u.correo, int(u.usuario_id), u.password)
     return {"success":True,"mensaje":"Proveedor creado","id":u.usuario_id,"empresaId":u.empresa_id}
 
 @router.put("/admin/provedores/{item_id}", dependencies=ADMIN)
