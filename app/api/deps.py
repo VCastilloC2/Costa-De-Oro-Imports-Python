@@ -86,6 +86,5 @@ def require_roles(*roles: str):
         return user
     return checker
 
-
 admin_user = require_roles("ADMIN")
 provider_user = require_roles("PROVEEDOR")
