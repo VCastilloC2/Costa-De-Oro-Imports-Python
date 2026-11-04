@@ -28,7 +28,6 @@ class ProductResponse(BaseModel):
     categoria_id: int | None = None
     subcategoria_id: int | None = None
 
-
 # DTOs comunes para operaciones CRUD de los módulos administrativos.
 # Los endpoints aceptan diccionarios para mantener compatibilidad con los nombres
 # de columnas de la base de datos heredada. Estos DTOs sirven para validaciones

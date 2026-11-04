@@ -19,63 +19,121 @@ logger = logging.getLogger(__name__)
 def get_cache_client():
     if not settings.valkey_url:
         return None
+
     try:
         import redis
+
         url = settings.valkey_url.strip()
-        # Layerbase Quick Connect supplies rediss://; keep TLS enabled.
+
+        # Compatibilidad con esquemas valkey:// y valkeys://.
         if url.startswith("valkey://"):
             url = "redis://" + url[len("valkey://"):]
+
         elif url.startswith("valkeys://"):
             url = "rediss://" + url[len("valkeys://"):]
+
         parsed = urlsplit(url)
-        if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
-            raise ValueError("VALKEY_URL debe usar redis:// o rediss:// e incluir un host")
+
+        if (
+            parsed.scheme not in {"redis", "rediss"}
+            or not parsed.hostname
+        ):
+            raise ValueError(
+                "VALKEY_URL debe usar redis:// o rediss:// "
+                "e incluir un host"
+            )
+
         return redis.Redis.from_url(
             url,
             decode_responses=True,
-            # Layerbase's free Valkey can sleep; allow its documented wake-up window.
-            socket_connect_timeout=5,
-            socket_timeout=2,
+            socket_connect_timeout=15,
+            socket_timeout=10,
             health_check_interval=30,
+            retry_on_timeout=True,
         )
-    except Exception as exc:
-        # Do not log the connection URL because it contains the database password.
-        logger.error("No fue posible inicializar Valkey (%s)", type(exc).__name__)
-        return None
 
+    except Exception as exc:
+        logger.exception(
+            "La comprobación de Valkey falló: %s",
+            exc,
+        )
+        return {
+            "status": "unavailable",
+            "provider": "valkey",
+            "write_test": False,
+        }
 
 def cache_health() -> dict[str, Any]:
-    """Check the remote Valkey connection without exposing its URL or credentials."""
+    """Comprueba la conexión con Valkey."""
+
     if not settings.valkey_url:
-        return {"status": "not_configured", "provider": "valkey"}
+        return {
+            "status": "not_configured",
+            "provider": "valkey",
+        }
+
     client = get_cache_client()
+
     if client is None:
-        return {"status": "unavailable", "provider": "valkey"}
+        return {
+            "status": "unavailable",
+            "provider": "valkey",
+        }
+
     started = perf_counter()
     probe_key = f"health:write_probe:{secrets.token_hex(16)}"
     probe_value = secrets.token_urlsafe(16)
+    probe_written = False
+
     try:
+        # Comprueba la conexión.
         client.ping()
+
+        # Comprueba que podemos escribir.
         if not client.set(probe_key, probe_value, ex=15):
-            raise RuntimeError("Valkey no confirmó la escritura de prueba")
+            raise RuntimeError(
+                "Valkey no confirmó la escritura de prueba"
+            )
+
+        probe_written = True
+
+        # Comprueba que podemos leer.
         if client.get(probe_key) != probe_value:
-            raise RuntimeError("Valkey no devolvió la clave de prueba")
+            raise RuntimeError(
+                "Valkey no devolvió la clave de prueba"
+            )
+
         return {
             "status": "ok",
             "provider": "valkey",
             "write_test": True,
-            "latency_ms": round((perf_counter() - started) * 1000, 2),
+            "latency_ms": round(
+                (perf_counter() - started) * 1000,
+                2,
+            ),
         }
-    except Exception as exc:
-        logger.warning("La comprobación de Valkey falló (%s)", type(exc).__name__)
-        return {"status": "unavailable", "provider": "valkey", "write_test": False}
-    finally:
-        try:
-            client.delete(probe_key)
-        except Exception:
-            # The probe also expires automatically after 15 seconds.
-            logger.warning("No se pudo eliminar la clave temporal de comprobación Valkey")
 
+    except Exception as exc:
+        # Muestra el error completo durante el diagnóstico.
+        logger.exception(
+            "La comprobación de Valkey falló: %s",
+            exc,
+        )
+
+        return {
+            "status": "unavailable",
+            "provider": "valkey",
+            "write_test": False,
+        }
+
+    finally:
+        # Solo borrar si la escritura funcionó.
+        if probe_written:
+            try:
+                client.delete(probe_key)
+            except Exception:
+                # La clave expirará automáticamente en 15 segundos.
+                pass
 
 def cache_get_json(key: str) -> Any | None:
     client = get_cache_client()

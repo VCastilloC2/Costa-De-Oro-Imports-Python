@@ -78,14 +78,19 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     used_cached_credentials = False
     if cached_credentials and is_bcrypt_hash(cached_credentials.get("password_hash")):
         candidate_hash = cached_credentials["password_hash"]
-        if not verify_password(payload.password, candidate_hash):
-            raise HTTPException(401, "Credenciales inválidas")
-        cached_user = cache_get_json(user_cache_key(int(cached_credentials["usuario_id"])))
-        if cached_user and isinstance(cached_user.get("usuario"), dict):
-            user = Usuario(**cached_user["usuario"])
-            user._cached_role = cached_user.get("rol", "")
-            used_cached_credentials = True
+        if verify_password(payload.password, candidate_hash):
+            cached_user = cache_get_json(user_cache_key(int(cached_credentials["usuario_id"])))
+            if cached_user and isinstance(cached_user.get("usuario"), dict):
+                user = Usuario(**cached_user["usuario"])
+                # The profile snapshot intentionally omits the password. Keep the
+                # verified hash on this transient model so the common validation
+                # below can validate both DB and cache backed users consistently.
+                user.password = candidate_hash
+                user._cached_role = cached_user.get("rol", "")
+                used_cached_credentials = True
     if user is None:
+        # A cache entry may outlive a password update (or belong to a damaged
+        # cache). MySQL is authoritative; a stale cache must not lock out login.
         user = db.scalar(select(Usuario).where(Usuario.correo == email))
     if not user or not verify_password(payload.password, user.password):
         raise HTTPException(401, "Credenciales inválidas")
