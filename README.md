@@ -23,3 +23,6 @@ No ejecuta `create_all`, no borra tablas ni carga SQL seed automáticamente. Usa
 - `GET /admin/categoria`, `GET /admin/categoria/{id}`
 - `GET /perfil`, `GET /perfil/configuracion`
 - Swagger UI y OpenAPI.
+- Servicio ML de predicciones (TensorFlow) en `/api/v1/predictions/*`: entrenamiento, métricas,
+  generación, historial y API Keys para integraciones externas. Ver [docs/API_PREDICCIONES.md](docs/API_PREDICCIONES.md).
+  Antes de usarlo crea las tablas nuevas con `app/prediction/sql/ml_tables.sql`.

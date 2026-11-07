@@ -5,8 +5,8 @@ from typing import Annotated
 import time
 
 import jwt
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from app.core.cache import (
     cache_auth_token, cache_auth_user, cache_get_json, revoked_token_cache_key,
@@ -88,3 +88,64 @@ def require_roles(*roles: str):
 
 admin_user = require_roles("ADMIN")
 provider_user = require_roles("PROVEEDOR")
+
+
+# --------------------------------------------------------------------------- API de predicciones
+# Dos mecanismos de autenticación para clientes externos:
+#   * JWT (Authorization: Bearer) de un usuario con rol permitido (PREDICTION_ALLOWED_ROLES, por defecto ADMIN).
+#   * API Key de servicio (cabecera X-API-Key) emitida por un ADMIN, con permisos acotados.
+# Entrenar modelos y gestionar API Keys exige SIEMPRE un JWT de ADMIN (las API Keys no sirven).
+api_key_header = APIKeyHeader(
+    name="X-API-Key", auto_error=False, scheme_name="ApiKeyAuth",
+    description="Credencial de servicio para integraciones entre sistemas (Spring Boot, Node.js, etc.)")
+
+
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
+def prediction_access(scope: str, admin_only: bool = False):
+    """Dependencia de autorización + registro de accesos para /api/v1/predictions."""
+    def checker(
+        request: Request,
+        db: DB,
+        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+        api_key: Annotated[str | None, Depends(api_key_header)],
+    ) -> dict:
+        from app.prediction import repository
+
+        def log(channel: str, requester: str | None, result: str) -> None:
+            if settings.prediction_access_log_enabled:
+                repository.record_access(db, request.method, request.url.path, channel, requester,
+                                         _client_ip(request), result)
+
+        if credentials:
+            user = current_user(credentials, db)
+            role = user_role(user, db)
+            allowed = {"ADMIN"} if admin_only else settings.prediction_roles
+            if role not in allowed:
+                log("JWT", user.correo, "DENEGADO")
+                raise HTTPException(403, "No tienes permisos para este recurso")
+            log("JWT", user.correo, "PERMITIDO")
+            return {"channel": "JWT", "name": user.correo, "user_id": int(user.usuario_id), "role": role}
+        if api_key:
+            if admin_only:
+                log("API_KEY", None, "DENEGADO")
+                raise HTTPException(403, "Esta operación requiere un JWT de administrador; las API Keys no están autorizadas")
+            try:
+                client = repository.verify_api_key(db, api_key)
+            except repository.HistoryUnavailableError:
+                client = None
+            if client is None:
+                log("API_KEY", api_key[:12], "DENEGADO")
+                raise HTTPException(401, "API Key inválida o revocada", headers={"WWW-Authenticate": "ApiKey"})
+            scopes = {s for s in client.permisos.split(",") if s}
+            if scope not in scopes:
+                log("API_KEY", client.nombre, "DENEGADO")
+                raise HTTPException(403, f"La API Key no tiene el permiso '{scope}'")
+            log("API_KEY", client.nombre, "PERMITIDO")
+            return {"channel": "API_KEY", "name": f"api:{client.nombre}", "client_id": int(client.cliente_id),
+                    "scopes": sorted(scopes)}
+        raise HTTPException(401, "Se requiere Authorization: Bearer <JWT> o X-API-Key",
+                            headers={"WWW-Authenticate": "Bearer"})
+    return checker

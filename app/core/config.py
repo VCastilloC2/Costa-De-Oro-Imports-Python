@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     valkey_auth_ttl_seconds: int = Field(300, ge=1, le=86400, validation_alias=AliasChoices("VALKEY_AUTH_TTL_SECONDS"))
     prediction_data_source: str = Field("database", validation_alias=AliasChoices("PREDICTION_DATA_SOURCE"))
     prediction_dataset_csv: Path = Field(PROJECT_ROOT / "app" / "prediction" / "data" / "costa_de_oro_ventas.csv", validation_alias=AliasChoices("PREDICTION_DATASET_CSV"))
+    # --- Servicio ML de predicciones (TensorFlow) ---
+    prediction_model_dir: Path = Field(PROJECT_ROOT / "app" / "prediction" / "artifacts", validation_alias=AliasChoices("PREDICTION_MODEL_DIR"))
+    prediction_min_training_samples: int = Field(18, ge=6, le=10000, validation_alias=AliasChoices("PREDICTION_MIN_TRAINING_SAMPLES"))
+    prediction_max_concurrent: int = Field(4, ge=1, le=64, validation_alias=AliasChoices("PREDICTION_MAX_CONCURRENT"))
+    prediction_inference_timeout_seconds: float = Field(30.0, ge=1, le=600, validation_alias=AliasChoices("PREDICTION_INFERENCE_TIMEOUT_SECONDS"))
+    prediction_dedup_window_seconds: int = Field(300, ge=0, le=86400, validation_alias=AliasChoices("PREDICTION_DEDUP_WINDOW_SECONDS"))
+    prediction_training_lock_ttl_seconds: int = Field(3600, ge=60, le=86400, validation_alias=AliasChoices("PREDICTION_TRAINING_LOCK_TTL_SECONDS"))
+    prediction_allowed_roles: str = Field("ADMIN", validation_alias=AliasChoices("PREDICTION_ALLOWED_ROLES"))
+    prediction_access_log_enabled: bool = Field(True, validation_alias=AliasChoices("PREDICTION_ACCESS_LOG_ENABLED"))
     spring_jpa_hibernate_ddl_auto: str = "validate"
     prediccion_api_url: str | None = None
     prediccion_api_key: str | None = None
@@ -47,6 +56,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [x.strip() for x in self.cors_allowed_origins.split(",") if x.strip()]
+
+    @property
+    def prediction_roles(self) -> set[str]:
+        return {x.strip().upper() for x in self.prediction_allowed_roles.split(",") if x.strip()} or {"ADMIN"}
 
 @lru_cache
 def get_settings() -> Settings:

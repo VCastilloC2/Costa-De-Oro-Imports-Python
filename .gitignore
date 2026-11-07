@@ -27,3 +27,6 @@
 __pycache__/
 *.py[cod]
 .uv-cache/
+
+### Modelos entrenados (artefactos generados en runtime) ###
+app/prediction/artifacts/
