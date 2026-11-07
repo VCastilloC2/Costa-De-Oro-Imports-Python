@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     cloud_api_secret: str | None = None
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.8-flash"
+    # --- Gemini: cliente compartido, límites y asistentes ---
+    gemini_timeout_seconds: float = Field(30.0, ge=5, le=300, validation_alias=AliasChoices("GEMINI_TIMEOUT_SECONDS"))
+    gemini_max_retries: int = Field(2, ge=0, le=5, validation_alias=AliasChoices("GEMINI_MAX_RETRIES"))
+    gemini_max_output_tokens: int = Field(800, ge=64, le=8192, validation_alias=AliasChoices("GEMINI_MAX_OUTPUT_TOKENS"))
+    chatbot_context_cache_seconds: int = Field(60, ge=0, le=3600, validation_alias=AliasChoices("CHATBOT_CONTEXT_CACHE_SECONDS"))
+    chatbot_rate_limit_per_minute: int = Field(20, ge=1, le=600, validation_alias=AliasChoices("CHATBOT_RATE_LIMIT_PER_MINUTE"))
+    shop_assistant_enabled: bool = Field(True, validation_alias=AliasChoices("SHOP_ASSISTANT_ENABLED"))
+    shop_assistant_rate_limit_per_minute: int = Field(10, ge=1, le=600, validation_alias=AliasChoices("SHOP_ASSISTANT_RATE_LIMIT_PER_MINUTE"))
+    shop_assistant_daily_limit: int = Field(2000, ge=1, le=1000000, validation_alias=AliasChoices("SHOP_ASSISTANT_DAILY_LIMIT"))
+    shop_assistant_max_output_tokens: int = Field(500, ge=64, le=4096, validation_alias=AliasChoices("SHOP_ASSISTANT_MAX_OUTPUT_TOKENS"))
     mercado_pago_access_token: str | None = None
     jwt_secret_ecommerce: str = Field("REPLACE_THIS_SECRET", validation_alias=AliasChoices("JWT_SECRET_ECOMMERCE", "JWT_SECRET"))
     jwt_issuer_ecommerce: str = "CostaDeOroImports"

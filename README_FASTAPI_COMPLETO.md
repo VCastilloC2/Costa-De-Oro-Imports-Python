@@ -12,7 +12,7 @@ Migración modular de la API de Costa De Oro Imports desde Spring Boot. Se manti
 
 El motor ajusta una regresión de Scikit-Learn y una red neuronal TensorFlow/Keras sobre el historial, y promedia sus proyecciones mensuales. TensorFlow ejecuta en CPU. Las dependencias están en `requirements.txt` y `.python-version` fija Python 3.13.
 
-El chatbot administrativo usa `POST /admin/chatbot/chat`, requiere JWT de un usuario con rol `ADMIN` y `GEMINI_API_KEY` configurada. El backend consulta datos resumidos de la base de datos en cada mensaje (inventario, ventas agregadas y catálogo); solo envía ese contexto y hasta 12 mensajes anteriores a Gemini. La API del chatbot es de solo lectura y no envía contraseñas ni datos personales.
+El chatbot administrativo usa `POST /admin/chatbot/chat`, requiere JWT de un usuario con rol `ADMIN` y `GEMINI_API_KEY` configurada. El backend consulta datos resumidos de la base de datos en cada mensaje (inventario, ventas agregadas y catálogo); solo envía ese contexto y hasta 12 mensajes anteriores a Gemini. La API del chatbot es de solo lectura y no envía contraseñas ni datos personales. También hay un asistente de compras público (`POST /api/asistente/chat`) que solo usa el catálogo activo. Ver `docs/GEMINI.md`.
 
 ```json
 {

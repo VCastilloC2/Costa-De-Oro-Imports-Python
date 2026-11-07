@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.core.security import create_token
 from app.models import Categoria, Compra, DetalleVenta, Producto, Usuario
 from app.services.chatbot_service import build_business_context
+from app.services.gemini_client import GeminiResult
 
 
 def _seed_admin(db_session, role_id=1, user_id=1):
@@ -69,7 +70,9 @@ def test_admin_chatbot_uses_mysql_context_and_gemini_reply(client, db_session, s
 
     def fake_gemini(message, context, history):
         observed.update(message=message, context=context, history=history)
-        return "Las ventas pagadas suman 80.000."
+        return GeminiResult(text="Las ventas pagadas suman 80.000.", model=settings.gemini_model,
+                            finish_reason="STOP",
+                            usage={"prompt_tokens": 120, "output_tokens": 12, "total_tokens": 132})
 
     monkeypatch.setattr("app.api.v1.endpoints.chatbot.generate_chat_response", fake_gemini)
     response = client.post(
@@ -86,6 +89,9 @@ def test_admin_chatbot_uses_mysql_context_and_gemini_reply(client, db_session, s
         "answer": "Las ventas pagadas suman 80.000.",
         "model": settings.gemini_model,
         "source": "database",
+        "context_cached": False,
+        "finish_reason": "STOP",
+        "usage": {"prompt_tokens": 120, "output_tokens": 12, "total_tokens": 132},
     }
     assert observed["context"]["ventas"]["total_pagado"] == 80000
     assert observed["history"][0].content == "Hablemos de ventas."

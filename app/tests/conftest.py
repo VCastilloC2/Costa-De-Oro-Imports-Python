@@ -23,6 +23,13 @@ settings.valkey_url = None
 get_cache_client.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    from app.core import rate_limit
+    rate_limit.reset_local()
+    yield
+
+
 @pytest.fixture
 def db_session():
     engine = create_engine(
