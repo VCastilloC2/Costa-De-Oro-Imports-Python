@@ -12,7 +12,7 @@ from app.api.deps import current_user, user_role
 from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.chatbot import router as chatbot_router
-from app.api.v1.endpoints.predictions import router as predictions_router
+from app.api.v1.endpoints.predictions import install_prediction_error_handlers, router as predictions_router
 from app.core.config import settings
 from app.core.cache import cache_health
 from app.core.database import get_db
@@ -30,7 +30,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version="4.0.0",
-    description="API REST de Costa De Oro Imports. Operaciones administrativas protegidas por rol ADMIN.",
+    description=(
+        "API REST de Costa De Oro Imports. Operaciones administrativas protegidas por rol ADMIN.\n\n"
+        "**Servicio de predicciones (TensorFlow):** `/api/v1/predictions/*`. Consumible desde cualquier "
+        "cliente HTTP/JSON (Flutter, Spring Boot, Node.js, Python...) con `Authorization: Bearer <JWT>` "
+        "o `X-API-Key`. Guía de integración: `docs/API_PREDICCIONES.md`."
+    ),
     docs_url="/doc" if settings.springdoc_swagger_ui_enabled else None,
     openapi_url="/v3/api-docs" if settings.springdoc_api_docs_enabled else None,
     redoc_url="/redoc",
@@ -102,3 +107,4 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(chatbot_router)
 app.include_router(predictions_router)
+install_prediction_error_handlers(app)

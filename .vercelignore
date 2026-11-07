@@ -18,3 +18,4 @@ check_db.py
 .env
 /test
 *.db
+app/prediction/artifacts/
