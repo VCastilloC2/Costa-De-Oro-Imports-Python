@@ -7,8 +7,10 @@ from .ml_entities import (
     ML_TABLES, PrediccionAcceso, PrediccionApiCliente, PrediccionEvaluacion,
     PrediccionHistorial, PrediccionModelo,
 )
+from .passkey import PasskeyChallenge, PasskeyCredencial
 
 __all__ = [
+    "PasskeyChallenge", "PasskeyCredencial",
     "ML_TABLES", "PrediccionAcceso", "PrediccionApiCliente", "PrediccionEvaluacion",
     "PrediccionHistorial", "PrediccionModelo",
     "Rol", "Empresa", "Usuario", "Categoria", "SubCategoria", "Producto", "Compra",

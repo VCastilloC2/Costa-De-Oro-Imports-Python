@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     prediction_training_lock_ttl_seconds: int = Field(3600, ge=60, le=86400, validation_alias=AliasChoices("PREDICTION_TRAINING_LOCK_TTL_SECONDS"))
     prediction_allowed_roles: str = Field("ADMIN", validation_alias=AliasChoices("PREDICTION_ALLOWED_ROLES"))
     prediction_access_log_enabled: bool = Field(True, validation_alias=AliasChoices("PREDICTION_ACCESS_LOG_ENABLED"))
+    # --- Passkeys (WebAuthn / FIDO2) ---
+    # Vacío = passkeys desactivadas (los endpoints responden 503), igual que PASSKEY_RP_ID en Flutter.
+    passkey_rp_id: str = Field("", validation_alias=AliasChoices("PASSKEY_RP_ID"))
+    passkey_rp_name: str = Field("Costa de Oro Imports", validation_alias=AliasChoices("PASSKEY_RP_NAME"))
+    # Orígenes aceptados en clientDataJSON: https://<rp_id> (iOS/web) y android:apk-key-hash:<hash> (Android).
+    passkey_expected_origins: str = Field("", validation_alias=AliasChoices("PASSKEY_EXPECTED_ORIGINS"))
+    passkey_challenge_ttl_seconds: int = Field(300, ge=30, le=900, validation_alias=AliasChoices("PASSKEY_CHALLENGE_TTL_SECONDS"))
+    passkey_cache_ttl_seconds: int = Field(3600, ge=60, le=604800, validation_alias=AliasChoices("PASSKEY_CACHE_TTL_SECONDS"))
+    passkey_session_ttl_seconds: int = Field(3600, ge=300, le=86400, validation_alias=AliasChoices("PASSKEY_SESSION_TTL_SECONDS"))
+    passkey_ceremony_timeout_ms: int = Field(120000, ge=30000, le=600000, validation_alias=AliasChoices("PASSKEY_CEREMONY_TIMEOUT_MS"))
     spring_jpa_hibernate_ddl_auto: str = "validate"
     prediccion_api_url: str | None = None
     prediccion_api_key: str | None = None
@@ -56,6 +66,13 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [x.strip() for x in self.cors_allowed_origins.split(",") if x.strip()]
+
+    @property
+    def passkey_origins(self) -> list[str]:
+        origins = [x.strip() for x in self.passkey_expected_origins.split(",") if x.strip()]
+        if not origins and self.passkey_rp_id:
+            origins = [f"https://{self.passkey_rp_id.strip()}"]
+        return origins
 
     @property
     def prediction_roles(self) -> set[str]:

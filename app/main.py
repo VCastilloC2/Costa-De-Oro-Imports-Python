@@ -12,6 +12,7 @@ from app.api.deps import current_user, user_role
 from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.chatbot import router as chatbot_router
+from app.api.v1.endpoints.passkey import router as passkey_router
 from app.api.v1.endpoints.predictions import install_prediction_error_handlers, router as predictions_router
 from app.core.config import settings
 from app.core.cache import cache_health
@@ -104,6 +105,7 @@ def openapi_check():
 
 
 app.include_router(auth_router)
+app.include_router(passkey_router)
 app.include_router(admin_router)
 app.include_router(chatbot_router)
 app.include_router(predictions_router)
