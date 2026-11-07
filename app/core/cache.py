@@ -21,7 +21,14 @@ def get_cache_client():
         return None
 
     try:
-        import redis
+        # valkey-py es el cliente oficial de Valkey; redis-py es compatible y
+        # se usa como respaldo si valkey-py no está instalado.
+        try:
+            import valkey as client_lib
+            client_class = client_lib.Valkey
+        except ImportError:  # pragma: no cover - depende del entorno
+            import redis as client_lib
+            client_class = client_lib.Redis
 
         url = settings.valkey_url.strip()
 
@@ -43,7 +50,7 @@ def get_cache_client():
                 "e incluir un host"
             )
 
-        return redis.Redis.from_url(
+        return client_class.from_url(
             url,
             decode_responses=True,
             socket_connect_timeout=15,
@@ -57,11 +64,8 @@ def get_cache_client():
             "La comprobación de Valkey falló: %s",
             exc,
         )
-        return {
-            "status": "unavailable",
-            "provider": "valkey",
-            "write_test": False,
-        }
+        # Sin cliente: los llamadores tratan None como "Valkey no disponible".
+        return None
 
 def cache_health() -> dict[str, Any]:
     """Comprueba la conexión con Valkey."""
@@ -161,6 +165,35 @@ def cache_set_json(key: str, value: Any, ttl: int | None = None) -> bool:
     except Exception:
         logger.warning("Valkey no disponible al escribir caché", exc_info=True)
         return False
+
+
+def cache_pop_json(key: str) -> tuple[bool, Any | None]:
+    """Lee y borra la clave de forma atómica (GETDEL): valores de un solo uso.
+
+    Devuelve ``(disponible, valor)``; ``disponible`` es False si Valkey no responde.
+    """
+    client = get_cache_client()
+    if client is None:
+        return False, None
+    try:
+        raw = client.getdel(key)
+        return True, (json.loads(raw) if raw is not None else None)
+    except Exception:
+        logger.warning("Valkey no disponible al consumir una clave de un solo uso", exc_info=True)
+        return False, None
+
+
+def cache_ttl(key: str) -> int | None:
+    """Segundos restantes de una clave; None si no existe o Valkey no responde."""
+    client = get_cache_client()
+    if client is None:
+        return None
+    try:
+        ttl = int(client.ttl(key))
+        return ttl if ttl >= 0 else None
+    except Exception:
+        logger.warning("Valkey no disponible al consultar TTL", exc_info=True)
+        return None
 
 
 def cache_delete(key: str) -> None:

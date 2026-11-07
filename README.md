@@ -26,3 +26,5 @@ No ejecuta `create_all`, no borra tablas ni carga SQL seed automáticamente. Usa
 - Servicio ML de predicciones (TensorFlow) en `/api/v1/predictions/*`: entrenamiento, métricas,
   generación, historial y API Keys para integraciones externas. Ver [docs/API_PREDICCIONES.md](docs/API_PREDICCIONES.md).
   Antes de usarlo crea las tablas nuevas con `app/prediction/sql/ml_tables.sql`.
+- Passkeys (WebAuthn) con Valkey + MySQL en `/api/v1/auth/passkey/*` y `GET /api/v1/auth/session/validate`.
+  Ver [docs/PASSKEYS.md](docs/PASSKEYS.md); tablas en `app/sql/passkeys.sql`.

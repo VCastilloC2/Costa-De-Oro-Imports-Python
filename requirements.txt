@@ -20,3 +20,5 @@ scikit-learn
 tensorflow>=2.16,<3
 redis
 python-dotenv
+webauthn>=2.0,<4
+valkey>=6.0

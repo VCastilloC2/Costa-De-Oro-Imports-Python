@@ -30,10 +30,12 @@ def verify_password(password: str, hashed: str | None) -> bool:
 def is_bcrypt_hash(hashed: str | None) -> bool:
     return bool(hashed and hashed.startswith(("$2a$", "$2b$", "$2y$")))
 
-def create_token(subject: str, role: str = "PERSONA_NATURAL") -> str:
+def create_token(subject: str, role: str = "PERSONA_NATURAL", ttl_seconds: int = 3600,
+                 extra_claims: dict | None = None) -> str:
     now = datetime.now(timezone.utc)
-    return jwt.encode({"sub": subject, "role": role, "iss": settings.jwt_issuer_ecommerce,
-        "iat": now, "exp": now + timedelta(hours=1)}, settings.jwt_secret_ecommerce, algorithm="HS256")
+    claims = {**(extra_claims or {}), "sub": subject, "role": role, "iss": settings.jwt_issuer_ecommerce,
+              "iat": now, "exp": now + timedelta(seconds=ttl_seconds)}
+    return jwt.encode(claims, settings.jwt_secret_ecommerce, algorithm="HS256")
 
 def decode_token(token: str) -> dict:
     return jwt.decode(token, settings.jwt_secret_ecommerce, algorithms=["HS256"], issuer=settings.jwt_issuer_ecommerce,
