@@ -18,7 +18,7 @@ PeriodLiteral = Literal[
 ]
 GranularityLiteral = Literal["daily", "weekly", "monthly"]
 DataSourceLiteral = Literal["auto", "database", "csv"]
-ScopeLiteral = Literal["predictions:read", "predictions:generate"]
+ScopeLiteral = Literal["predictions:read", "predictions:generate", "admin:read", "admin:write"]
 
 
 class ApiResponse(BaseModel, Generic[T]):

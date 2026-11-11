@@ -7,6 +7,7 @@ import time
 import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.core.cache import (
     cache_auth_token, cache_auth_user, cache_get_json, revoked_token_cache_key,
@@ -86,7 +87,6 @@ def require_roles(*roles: str):
         return user
     return checker
 
-admin_user = require_roles("ADMIN")
 provider_user = require_roles("PROVEEDOR")
 
 
@@ -149,3 +149,64 @@ def prediction_access(scope: str, admin_only: bool = False):
         raise HTTPException(401, "Se requiere Authorization: Bearer <JWT> o X-API-Key",
                             headers={"WWW-Authenticate": "Bearer"})
     return checker
+
+
+# --------------------------------------------------------------------------- administración
+ADMIN_EMAIL_HEADER = "X-Admin-Email"
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def admin_user(
+    request: Request,
+    db: DB,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    api_key: Annotated[str | None, Depends(api_key_header)],
+) -> Usuario:
+    """Usuario ADMIN que hace la petición. Dos formas de autenticarse:
+
+    * ``Authorization: Bearer <JWT>`` de un usuario con rol ADMIN (Swagger, Flutter, etc.).
+    * Servicio a servicio (Spring Boot): ``X-API-Key`` con permiso ``admin:read`` (lecturas) o
+      ``admin:write`` (lecturas y escrituras) **más** ``X-Admin-Email`` con el correo del administrador
+      que inició sesión en Spring. Se verifica que ese correo sea un ADMIN activo, de modo que la clave
+      por sí sola no basta para actuar, y cada acceso queda registrado con clave y administrador.
+    """
+    if credentials:
+        user = current_user(credentials, db)
+        if user_role(user, db) != "ADMIN":
+            raise HTTPException(403, "No tienes permisos para este recurso")
+        return user
+    if not api_key:
+        raise HTTPException(401, "Se requiere Authorization: Bearer <JWT> o X-API-Key",
+                            headers={"WWW-Authenticate": "Bearer"})
+
+    from app.prediction import repository
+
+    def log(requester: str | None, result: str) -> None:
+        if settings.prediction_access_log_enabled:
+            repository.record_access(db, request.method, request.url.path, "API_KEY", requester,
+                                     _client_ip(request), result)
+
+    try:
+        client = repository.verify_api_key(db, api_key)
+    except repository.HistoryUnavailableError:
+        client = None
+    if client is None:
+        log(api_key[:12], "DENEGADO")
+        raise HTTPException(401, "API Key inválida o revocada", headers={"WWW-Authenticate": "ApiKey"})
+
+    scopes = {s for s in (client.permisos or "").split(",") if s}
+    needed = repository.SCOPE_ADMIN_READ if request.method in _SAFE_METHODS else repository.SCOPE_ADMIN_WRITE
+    if needed not in scopes and repository.SCOPE_ADMIN_WRITE not in scopes:
+        log(f"api:{client.nombre}", "DENEGADO")
+        raise HTTPException(403, f"La API Key no tiene el permiso '{needed}'")
+
+    email = (request.headers.get(ADMIN_EMAIL_HEADER) or "").strip()
+    if not email:
+        log(f"api:{client.nombre}", "DENEGADO")
+        raise HTTPException(401, f"Falta la cabecera {ADMIN_EMAIL_HEADER} con el administrador que actúa")
+    user = db.scalar(select(Usuario).where(func.lower(Usuario.correo) == email.lower()))
+    if user is None or not _valid_account(user) or user_role(user, db) != "ADMIN":
+        log(f"api:{client.nombre}->{email[:100]}", "DENEGADO")
+        raise HTTPException(403, "El usuario indicado en X-Admin-Email no es un administrador activo")
+    log(f"api:{client.nombre}->{user.correo}", "PERMITIDO")
+    return user

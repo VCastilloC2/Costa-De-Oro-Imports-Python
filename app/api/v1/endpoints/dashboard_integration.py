@@ -84,15 +84,9 @@ def _formatear_label(nombre: str, valor: float, total: float) -> str:
     return f"{nombre} ${valor:,.2f} ({porcentaje:.0f}%)"
 
 
-@router.get("/ingresos-gastos", response_model=IngresosGastosResponse,
-            summary="Ingresos y gastos totales mes a mes")
-def ingresos_gastos(
-    request: Request,
-    principal: Annotated[dict, Depends(prediction_access(SCOPE_READ))],
-    db: Annotated[Session, Depends(get_db)],
-    meses: MesesParam = 12,
-) -> IngresosGastosResponse:
-    periodos = ultimos_meses(meses)
+def calcular_ingresos_gastos(db: Session, meses: int = 12, hoy: date | None = None) -> IngresosGastosResponse:
+    """Ingresos (compras PAGADAS) y gastos (facturas activas) de los últimos ``meses`` meses, mes a mes."""
+    periodos = ultimos_meses(meses, hoy)
     desde_fecha = date(periodos[0][0], periodos[0][1], 1)
     desde_dt = datetime.combine(desde_fecha, datetime.min.time())
 
@@ -102,8 +96,6 @@ def ingresos_gastos(
 
     serie_ingresos = [round(ingresos.get(p, 0.0), 2) for p in periodos]
     serie_gastos = [round(gastos.get(p, 0.0), 2) for p in periodos]
-    logger.info("dashboard ingresos-gastos meses=%s by=%s requestId=%s",
-                meses, principal["name"], request.headers.get("X-Request-Id", "-"))
     return IngresosGastosResponse(
         categorias=[f"{MESES_ES[m - 1]} {a}" for a, m in periodos],
         ingresos=serie_ingresos,
@@ -113,15 +105,9 @@ def ingresos_gastos(
     )
 
 
-@router.get("/ventas-totales", response_model=VentasTotalesResponse,
-            summary="Ventas por estado (Envíos, Reembolsos, Pedidos) para la dona")
-def ventas_totales(
-    request: Request,
-    principal: Annotated[dict, Depends(prediction_access(SCOPE_READ))],
-    db: Annotated[Session, Depends(get_db)],
-    meses: MesesParam = 12,
-) -> VentasTotalesResponse:
-    anio, mes = ultimos_meses(meses)[0]
+def calcular_ventas_totales(db: Session, meses: int = 12, hoy: date | None = None) -> VentasTotalesResponse:
+    """Reparto de las compras por estado (Envíos, Reembolsos, Pedidos) de los últimos ``meses`` meses."""
+    anio, mes = ultimos_meses(meses, hoy)[0]
     desde = datetime(anio, mes, 1)
     filas = db.execute(
         select(Compra.estado, func.coalesce(func.sum(Compra.total), 0))
@@ -132,10 +118,34 @@ def ventas_totales(
 
     series = [round(sum(por_estado.get(e, 0.0) for e in estados), 2) for _, estados in SEGMENTOS_VENTAS]
     total = round(sum(series), 2)
-    logger.info("dashboard ventas-totales meses=%s by=%s requestId=%s",
-                meses, principal["name"], request.headers.get("X-Request-Id", "-"))
     return VentasTotalesResponse(
         series=series,
         labels=[_formatear_label(nombre, v, total) for (nombre, _), v in zip(SEGMENTOS_VENTAS, series)],
         totalVentas=total,
     )
+
+
+@router.get("/ingresos-gastos", response_model=IngresosGastosResponse,
+            summary="Ingresos y gastos totales mes a mes")
+def ingresos_gastos(
+    request: Request,
+    principal: Annotated[dict, Depends(prediction_access(SCOPE_READ))],
+    db: Annotated[Session, Depends(get_db)],
+    meses: MesesParam = 12,
+) -> IngresosGastosResponse:
+    logger.info("dashboard ingresos-gastos meses=%s by=%s requestId=%s",
+                meses, principal["name"], request.headers.get("X-Request-Id", "-"))
+    return calcular_ingresos_gastos(db, meses)
+
+
+@router.get("/ventas-totales", response_model=VentasTotalesResponse,
+            summary="Ventas por estado (Envíos, Reembolsos, Pedidos) para la dona")
+def ventas_totales(
+    request: Request,
+    principal: Annotated[dict, Depends(prediction_access(SCOPE_READ))],
+    db: Annotated[Session, Depends(get_db)],
+    meses: MesesParam = 12,
+) -> VentasTotalesResponse:
+    logger.info("dashboard ventas-totales meses=%s by=%s requestId=%s",
+                meses, principal["name"], request.headers.get("X-Request-Id", "-"))
+    return calcular_ventas_totales(db, meses)

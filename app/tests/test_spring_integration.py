@@ -1,8 +1,19 @@
 """Contrato servicio-a-servicio con Spring Boot (PrediccionApiClient + FastApiGateway)."""
+import threading
+
+import pytest
+
 from app.api.v1.endpoints import spring_integration
 from app.prediction import repository
 from app.prediction.repository import SCOPE_GENERATE, SCOPE_READ
 from app.tests.test_prediction import _seed_admin
+
+
+@pytest.fixture(autouse=True)
+def _limpiar_cache():
+    spring_integration.clear_prediction_cache()
+    yield
+    spring_integration.clear_prediction_cache()
 
 
 def _service_key(db, scopes):
@@ -71,3 +82,40 @@ def test_data_error_maps_to_422(client, db_session, seeded_roles, monkeypatch):
     monkeypatch.setattr(spring_integration, "forecast_month", no_data)
     headers = _service_key(db_session, [SCOPE_GENERATE])
     assert client.post("/api/prediccion/generar", headers=headers, json={"anno": 2026, "mes": 5}).status_code == 422
+
+
+def test_prediccion_se_calcula_una_vez_y_se_cachea(client, db_session, seeded_roles, monkeypatch):
+    _seed_admin(db_session)
+    llamadas = []
+
+    def lento(db, anno, mes):
+        llamadas.append((anno, mes))
+        return {"anno": anno, "mes": mes, "prediccion": 10.0}
+
+    monkeypatch.setattr(spring_integration, "forecast_month", lento)
+    headers = _service_key(db_session, [SCOPE_GENERATE])
+    for _ in range(3):
+        r = client.post("/api/prediccion/generar", headers=headers, json={"anno": 2026, "mes": 7})
+        assert r.status_code == 200 and r.json()["resultado"] == 10.0
+    assert llamadas == [(2026, 7)]
+
+
+def test_peticiones_simultaneas_entrenan_una_sola_vez():
+    inicio = threading.Event()
+    llamadas = []
+
+    def compute():
+        llamadas.append(1)
+        inicio.wait(1)  # simula el entrenamiento mientras llegan otras peticiones
+        return {"ok": True}
+
+    resultados = []
+    hilos = [threading.Thread(target=lambda: resultados.append(
+        spring_integration.cached_prediction("test:single-flight", compute))) for _ in range(5)]
+    for h in hilos:
+        h.start()
+    inicio.set()
+    for h in hilos:
+        h.join(5)
+    assert resultados == [{"ok": True}] * 5
+    assert len(llamadas) == 1

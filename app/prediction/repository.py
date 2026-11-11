@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 API_KEY_PREFIX = "cdo_pk_"
 SCOPE_READ = "predictions:read"
 SCOPE_GENERATE = "predictions:generate"
-VALID_SCOPES = {SCOPE_READ, SCOPE_GENERATE}
+# Acceso de servicio (Spring Boot) a las rutas de administración. admin:write implica admin:read.
+SCOPE_ADMIN_READ = "admin:read"
+SCOPE_ADMIN_WRITE = "admin:write"
+VALID_SCOPES = {SCOPE_READ, SCOPE_GENERATE, SCOPE_ADMIN_READ, SCOPE_ADMIN_WRITE}
 MISSING_TABLES_MESSAGE = (
     "Las tablas del servicio de predicciones no existen en la base de datos. Ejecuta "
     "app/prediction/sql/ml_tables.sql o 'python -m app.prediction.scripts_pred --create-ml-tables'.")

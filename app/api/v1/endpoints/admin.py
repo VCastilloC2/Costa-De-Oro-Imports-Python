@@ -16,6 +16,10 @@ from app.prediction.data_handler import historical_dashboard_data
 from app.prediction.engine import generate_forecast
 from app.schemas import AdminCreateRequest, ForecastRequest
 from app.api.v1.endpoints.admin_extra import router as legacy_admin_router
+from app.api.v1.endpoints.admin_graficas import router as admin_graficas_router
+from app.api.v1.endpoints.admin_reportes import router as admin_reportes_router
+from app.api.v1.endpoints.admin_search import router as admin_search_router
+from app.api.v1.endpoints.admin_catalogo import router as admin_catalogo_router
 from app.api.v1.endpoints.categoria import router as categoria_router
 from app.api.v1.endpoints.comentario import router as comentario_router
 from app.api.v1.endpoints.subcategoria import router as subcategoria_router
@@ -35,10 +39,15 @@ router = APIRouter()
 
 @router.get("/admin/usuario/pendientes", tags=["Administración"], dependencies=[Depends(admin_user)])
 def pending_users(db: Session = Depends(get_db)):
-    return list(db.scalars(select(Usuario).where(Usuario.is_enabled.is_(False))))
+    # serialize() omite password y tokens: devolver el objeto ORM exponía el hash de la contraseña.
+    from app.services.usuario_service import usuario_service
+    return [usuario_service.serialize(u) for u in db.scalars(select(Usuario).where(Usuario.is_enabled.is_(False)))]
 
 
 router.include_router(legacy_admin_router)
+# Equivalentes de los @RestController de Spring (mismo JSON que consume el frontend).
+for rest_router in (admin_catalogo_router, admin_graficas_router, admin_reportes_router, admin_search_router):
+    router.include_router(rest_router)
 for child in [
     categoria_router, comentario_router, subcategoria_router, producto_router,
     detalle_venta_router, rol_router, factura_proveedor_router, usuario_router,
@@ -86,7 +95,7 @@ def prediction_status():
 
 @router.get("/admin/prediccion/datos-grafica", tags=["Predicción"], dependencies=[Depends(admin_user)])
 def prediction_dashboard(db: Session = Depends(get_db)):
-    cache_key = "dashboard:prediction:v1"
+    cache_key = "dashboard:prediction:v2"
     cached = cache_get_json(cache_key)
     if cached is not None:
         return cached

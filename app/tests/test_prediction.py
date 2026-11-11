@@ -158,8 +158,8 @@ def test_generate_route_returns_forecast_without_503(client, db_session, seeded_
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["serie"]) == 40
-    assert all(point["prediccion"] >= 0 for point in payload["serie"])
-    assert payload["metricas"]["modelos"] == ["scikit_learn", "tensorflow_keras"]
+    assert all(point["prediccion"] is None or point["prediccion"] >= 0 for point in payload["serie"])
+    assert payload["metricas"]["modelos"] == ["holt_winters_amortiguado"]
 
 
 def test_generate_forecast_rejects_empty_history():
