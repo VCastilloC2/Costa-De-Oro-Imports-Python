@@ -15,6 +15,7 @@ from app.api.v1.endpoints.chatbot import router as chatbot_router
 from app.api.v1.endpoints.passkey import router as passkey_router
 from app.api.v1.endpoints.predictions import install_prediction_error_handlers, router as predictions_router
 from app.api.v1.endpoints.spring_integration import router as spring_integration_router
+from app.api.v1.endpoints.dashboard_integration import router as dashboard_integration_router
 from app.core.config import settings
 from app.core.cache import cache_health
 from app.core.database import get_db
@@ -111,4 +112,5 @@ app.include_router(admin_router)
 app.include_router(chatbot_router)
 app.include_router(predictions_router)
 app.include_router(spring_integration_router)
+app.include_router(dashboard_integration_router)
 install_prediction_error_handlers(app)
