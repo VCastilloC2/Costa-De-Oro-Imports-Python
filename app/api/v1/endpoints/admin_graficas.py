@@ -11,7 +11,7 @@ import unicodedata
 from datetime import date, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
@@ -187,14 +187,14 @@ def dashboard(usuario: Annotated[Usuario, Depends(admin_user)], db: DB) -> dict:
 # --------------------------------------------------------------------------- ingresos / ventas
 @router.get("/ingresos-gastos", response_model=IngresosGastosResponse,
             summary="Ingresos y gastos de los últimos 12 meses, mes a mes")
-def ingresos_gastos(db: DB) -> IngresosGastosResponse:
-    return calcular_ingresos_gastos(db, 12)
+def ingresos_gastos(db: DB, meses: int = Query(12, ge=1, le=120)) -> IngresosGastosResponse:
+    return calcular_ingresos_gastos(db, meses)
 
 
 @router.get("/ventas-totales", response_model=VentasTotalesResponse,
             summary="Ventas de los últimos 12 meses por estado (dona)")
-def ventas_totales(db: DB) -> VentasTotalesResponse:
-    return calcular_ventas_totales(db, 12)
+def ventas_totales(db: DB, meses: int = Query(12, ge=1, le=120)) -> VentasTotalesResponse:
+    return calcular_ventas_totales(db, meses)
 
 
 # --------------------------------------------------------------------------- stock vs ventas

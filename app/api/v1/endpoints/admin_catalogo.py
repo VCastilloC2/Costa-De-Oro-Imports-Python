@@ -18,7 +18,7 @@ Diferencias deliberadas con Spring (ver docstrings de cada endpoint):
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -640,11 +640,20 @@ def eliminar_categoria(item_id: int, db: DB):
 @router.get("/admin/compra", response_model=list[CompraDashboardResponse],
             summary="Compras con su usuario, más recientes primero — getCompraByOrderAndFechaDesc")
 def listar_compras(db: DB, offset: int = Query(0, ge=0),
-                   limit: int | None = Query(None, ge=1, le=10000, description="Sin límite por defecto (como Spring)")):
+                   limit: int | None = Query(None, ge=1, le=10000, description="Sin límite por defecto (como Spring)"),
+                   estado: str | None = Query(None, description="Estado de compra (código, por ejemplo PAGADO)"),
+                   fechaInicio: date | None = Query(None), fechaFin: date | None = Query(None)):
     stmt = (select(Compra, Usuario)
             .join(Usuario, Usuario.usuario_id == Compra.usuario_id)
-            .order_by(Compra.fecha.desc(), Compra.compra_id.desc())
-            .offset(offset))
+            .order_by(Compra.fecha.desc(), Compra.compra_id.desc()))
+    if estado:
+        estados = ("CANCELADO", "RECHAZADO") if estado.upper() == "CANCELADO_RECHAZADO" else (estado.upper(),)
+        stmt = stmt.where(Compra.estado.in_(estados))
+    if fechaInicio:
+        stmt = stmt.where(Compra.fecha >= datetime.combine(fechaInicio, time.min))
+    if fechaFin:
+        stmt = stmt.where(Compra.fecha <= datetime.combine(fechaFin, time.max))
+    stmt = stmt.where(Compra.fecha <= datetime.combine(date.today(), time.max)).offset(offset)
     if limit is not None:
         stmt = stmt.limit(limit)
     return [CompraDashboardResponse(

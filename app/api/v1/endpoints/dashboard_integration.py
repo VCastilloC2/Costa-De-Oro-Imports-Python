@@ -50,12 +50,17 @@ class IngresosGastosResponse(BaseModel):
     totalGastos: float
 
 
-class VentasTotalesResponse(BaseModel):
-    """Espejo de ``VentasTotalesResponse`` (Java)."""
+class VentasTotalesItem(BaseModel):
+    estado: str
+    nombre: str
+    monto: float
+    pedidos: int
+    montoAnterior: float
 
-    series: list[float]
-    labels: list[str]
-    totalVentas: float
+
+class VentasTotalesResponse(BaseModel):
+    items: list[VentasTotalesItem]
+    totalMonto: float
 
 
 MesesParam = Annotated[int, Query(ge=1, le=120, description="Meses hacia atrás incluyendo el actual")]
@@ -68,20 +73,15 @@ def ultimos_meses(meses: int, hoy: date | None = None) -> list[tuple[int, int]]:
     return [(i // 12, i % 12 + 1) for i in range(indice - meses + 1, indice + 1)]
 
 
-def _sumas_mensuales(db: Session, fecha_col, total_col, condicion, desde) -> dict[tuple[int, int], float]:
+def _sumas_mensuales(db: Session, fecha_col, total_col, condicion, desde, hasta=None) -> dict[tuple[int, int], float]:
     anio = extract("year", fecha_col)
     mes = extract("month", fecha_col)
     filas = db.execute(
         select(anio, mes, func.coalesce(func.sum(total_col), 0))
-        .where(condicion, fecha_col >= desde)
+        .where(condicion, fecha_col >= desde, *([fecha_col <= hasta] if hasta is not None else []))
         .group_by(anio, mes)
     ).all()
     return {(int(a), int(m)): float(t) for a, m, t in filas}
-
-
-def _formatear_label(nombre: str, valor: float, total: float) -> str:
-    porcentaje = (valor / total * 100) if total > 0 else 0
-    return f"{nombre} ${valor:,.2f} ({porcentaje:.0f}%)"
 
 
 def calcular_ingresos_gastos(db: Session, meses: int = 12, hoy: date | None = None) -> IngresosGastosResponse:
@@ -90,7 +90,8 @@ def calcular_ingresos_gastos(db: Session, meses: int = 12, hoy: date | None = No
     desde_fecha = date(periodos[0][0], periodos[0][1], 1)
     desde_dt = datetime.combine(desde_fecha, datetime.min.time())
 
-    ingresos = _sumas_mensuales(db, Compra.fecha, Compra.total, Compra.estado == "PAGADO", desde_dt)
+    ingresos = _sumas_mensuales(db, Compra.fecha, Compra.total, Compra.estado == "PAGADO", desde_dt,
+                                 datetime.combine(hoy or date.today(), datetime.max.time()))
     gastos = _sumas_mensuales(db, FacturaProveedor.fecha_emision, FacturaProveedor.total,
                               FacturaProveedor.activo.is_(True), desde_fecha)
 
@@ -106,22 +107,38 @@ def calcular_ingresos_gastos(db: Session, meses: int = 12, hoy: date | None = No
 
 
 def calcular_ventas_totales(db: Session, meses: int = 12, hoy: date | None = None) -> VentasTotalesResponse:
-    """Reparto de las compras por estado (Envíos, Reembolsos, Pedidos) de los últimos ``meses`` meses."""
+    """Totales y pedidos por estado para el rango seleccionado y el rango previo comparable."""
+    hoy = hoy or date.today()
     anio, mes = ultimos_meses(meses, hoy)[0]
     desde = datetime(anio, mes, 1)
+    anterior_inicio_idx = anio * 12 + mes - 1 - meses
+    anterior_desde = datetime(anterior_inicio_idx // 12, anterior_inicio_idx % 12 + 1, 1)
+    fin = datetime.combine(hoy, datetime.max.time())
     filas = db.execute(
-        select(Compra.estado, func.coalesce(func.sum(Compra.total), 0))
-        .where(Compra.fecha >= desde)
+        select(Compra.estado, func.coalesce(func.sum(Compra.total), 0), func.count(Compra.compra_id))
+        .where(Compra.fecha >= desde, Compra.fecha <= fin)
         .group_by(Compra.estado)
     ).all()
-    por_estado = {str(estado): float(total) for estado, total in filas if estado is not None}
-
-    series = [round(sum(por_estado.get(e, 0.0) for e in estados), 2) for _, estados in SEGMENTOS_VENTAS]
-    total = round(sum(series), 2)
+    previo = db.execute(
+        select(Compra.estado, func.coalesce(func.sum(Compra.total), 0))
+        .where(Compra.fecha >= anterior_desde, Compra.fecha < desde)
+        .group_by(Compra.estado)
+    ).all()
+    actuales = {str(e): (float(m or 0), int(n or 0)) for e, m, n in filas if e is not None}
+    anteriores = {str(e): float(m or 0) for e, m in previo if e is not None}
+    items = []
+    for estado, nombre, estados in (
+        ("PAGADO", "Cobradas", ("PAGADO",)),
+        ("CANCELADO_RECHAZADO", "No cobradas", ("CANCELADO", "RECHAZADO")),
+        ("PENDIENTE", "Pendientes", ("PENDIENTE",)),
+    ):
+        monto = round(sum(actuales.get(e, (0, 0))[0] for e in estados), 2)
+        pedidos = sum(actuales.get(e, (0, 0))[1] for e in estados)
+        monto_anterior = round(sum(anteriores.get(e, 0) for e in estados), 2)
+        items.append(VentasTotalesItem(estado=estado, nombre=nombre, monto=monto, pedidos=pedidos,
+                                      montoAnterior=monto_anterior))
     return VentasTotalesResponse(
-        series=series,
-        labels=[_formatear_label(nombre, v, total) for (nombre, _), v in zip(SEGMENTOS_VENTAS, series)],
-        totalVentas=total,
+        items=items, totalMonto=round(sum(item.monto for item in items), 2),
     )
 
 
