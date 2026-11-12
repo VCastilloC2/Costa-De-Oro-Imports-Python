@@ -1,10 +1,8 @@
 from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field
 
-
 class LoginRequest(BaseModel):
     correo: EmailStr = Field(validation_alias=AliasChoices("correo", "username"))
     password: str = Field(min_length=5, max_length=150)
-
 
 class RegisterRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -16,8 +14,7 @@ class RegisterRequest(BaseModel):
     apellidos: str = Field(min_length=3, max_length=175)
     telefono: str = Field(min_length=5, max_length=25)
     direccion: str | None = None
-    rol: str | None = Field(default="PERSONA_NATURAL", pattern="^(INVITADO|PERSONA_CONTACTO|PERSONA_JURIDICA|PERSONA_NATURAL|PROVEEDOR)$")
-
+    rol: str | None = Field(default="PERSONA_NATURAL", pattern="^(INVITADO|PERSONA_CONTACTO|PERSONA_JURIDICA|PERSONA_NATURAL|PROVEEDOR|ADMIN)$")
 
 class OAuthLoginRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)

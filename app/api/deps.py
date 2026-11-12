@@ -99,10 +99,8 @@ api_key_header = APIKeyHeader(
     name="X-API-Key", auto_error=False, scheme_name="ApiKeyAuth",
     description="Credencial de servicio para integraciones entre sistemas (Spring Boot, Node.js, etc.)")
 
-
 def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
-
 
 def prediction_access(scope: str, admin_only: bool = False):
     """Dependencia de autorización + registro de accesos para /api/v1/predictions."""

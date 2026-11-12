@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     yield
 
-
 app = FastAPI(
     title=settings.app_name,
     version="4.0.0",
@@ -100,11 +99,9 @@ def public_product(producto_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Producto no encontrado")
     return item
 
-
 @app.get("/openapi-check", tags=["Sistema"])
 def openapi_check():
     return {"openapi": "/v3/api-docs", "swagger": "/doc", "redoc": "/redoc"}
-
 
 app.include_router(auth_router)
 app.include_router(passkey_router)

@@ -113,7 +113,6 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         cached_credentials.get("password_hash") if used_cached_credentials and cached_credentials else None,
     )
 
-
 @router.post("/auth/registro", status_code=201, response_model=UserResponse)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     email = str(payload.correo).lower().strip()
@@ -142,7 +141,6 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     cache_auth_credentials(user.correo, int(user.usuario_id), user.password)
     return user
 
-
 def _oauth_claims(provider: str, id_token: str) -> dict:
     provider = provider.lower()
     if provider == "google":
@@ -170,16 +168,13 @@ def _oauth_claims(provider: str, id_token: str) -> dict:
         raise HTTPException(401, "El token OAuth no contiene un correo")
     return claims
 
-
 @router.post("/auth/google")
 def google_login(payload: OAuthLoginRequest, db: Session = Depends(get_db)):
     return oauth_login("google", payload, db)
 
-
 @router.post("/auth/apple")
 def apple_login(payload: OAuthLoginRequest, db: Session = Depends(get_db)):
     return oauth_login("apple", payload, db)
-
 
 def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session) -> dict:
     claims = _oauth_claims(provider, payload.id_token)
@@ -241,7 +236,6 @@ def logout(
         except Exception:
             pass
     return {"success": True, "mensaje": "Sesión cerrada"}
-
 
 @router.get("/auth/catalogos")
 def catalogs():

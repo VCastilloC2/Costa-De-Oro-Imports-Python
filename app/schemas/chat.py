@@ -2,7 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 class ChatTurn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     role: Literal["user", "model"]
