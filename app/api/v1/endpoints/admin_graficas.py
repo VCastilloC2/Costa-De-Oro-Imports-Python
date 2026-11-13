@@ -21,7 +21,8 @@ from app.api.v1.endpoints.dashboard_integration import (
 from app.core.database import get_db
 from app.core.media import cloudinary_url
 from app.dependencies import admin_user
-from app.models import Categoria, Compra, DetalleVenta, Empresa, FacturaProveedor, Producto, Rol, Usuario
+from app.models import (Categoria, Compra, DetalleFactura, DetalleVenta, Empresa, FacturaProveedor,
+                        Producto, Rol, Usuario)
 
 router = APIRouter(prefix="/api/graficas", tags=["Administración"], dependencies=[Depends(admin_user)])
 
@@ -170,11 +171,23 @@ def _usuario_publico(usuario: Usuario, db: Session) -> dict:
 def dashboard(usuario: Annotated[Usuario, Depends(admin_user)], db: DB) -> dict:
     anio = date.today().year
     pagado_este_anio = (Compra.estado == "PAGADO", extract("year", Compra.fecha) == anio)
+    pagado_anio_anterior = (Compra.estado == "PAGADO", extract("year", Compra.fecha) == anio - 1)
+    clientes_anio_anterior = db.scalar(
+        select(func.count(func.distinct(Compra.usuario_id)))
+        .select_from(Compra)
+        .join(Usuario, Usuario.usuario_id == Compra.usuario_id)
+        .join(Rol, Rol.rol_id == Usuario.rol_id)
+        .where(*pagado_anio_anterior, Rol.rol.in_(ROLES_CLIENTE))
+    ) or 0
     return {
         "usuario": _usuario_publico(usuario, db),
         "urlImagenUsuario": cloudinary_url(usuario.imagen),
         "ingresoAnual": _suma(db, Compra.total, *pagado_este_anio),
         "comprasAnuales": int(db.scalar(select(func.count()).select_from(Compra).where(*pagado_este_anio)) or 0),
+        "comprasAnioAnterior": int(db.scalar(select(func.count()).select_from(Compra).where(*pagado_anio_anterior)) or 0),
+        # No hay fecha de alta de usuario en el modelo; se informa clientes activos (con compra pagada)
+        # durante el año previo, que es el único indicador histórico fiable disponible.
+        "clientesAnioAnterior": int(clientes_anio_anterior),
         "totalClientes": int(db.scalar(
             select(func.count()).select_from(Usuario).join(Rol, Rol.rol_id == Usuario.rol_id)
             .where(Rol.rol.in_(ROLES_CLIENTE))) or 0),
@@ -200,7 +213,8 @@ def ventas_totales(db: DB, meses: int = Query(12, ge=1, le=120)) -> VentasTotale
 # --------------------------------------------------------------------------- stock vs ventas
 @router.get("/stock-compras", summary="Unidades vendidas (6 meses) vs. stock disponible por categoría")
 def stock_compras(db: DB) -> dict:
-    desde = _menos_meses(datetime.now(), 6)
+    hasta = datetime.now()
+    desde = _menos_meses(hasta, 6)
     vendidas = func.sum(DetalleVenta.cantidad)
     ventas = db.execute(
         select(Categoria.nombre, vendidas)
@@ -220,13 +234,31 @@ def stock_compras(db: DB) -> dict:
         .group_by(Categoria.categoria_id, Categoria.nombre)
         .order_by(disponible.desc())
     ).all()
+    costo_unitario = func.sum(DetalleFactura.precio_compra * DetalleFactura.cantidad) / func.nullif(
+        func.sum(DetalleFactura.cantidad), 0
+    )
+    costos = db.execute(
+        select(Categoria.nombre, costo_unitario)
+        .select_from(DetalleFactura)
+        .join(FacturaProveedor, FacturaProveedor.factura_id == DetalleFactura.factura_id)
+        .join(Producto, Producto.producto_id == DetalleFactura.producto_id)
+        .join(Categoria, Categoria.categoria_id == Producto.categoria_id)
+        .where(FacturaProveedor.activo.is_(True))
+        .group_by(Categoria.categoria_id, Categoria.nombre)
+    ).all()
     ventas_map = {nombre: int(v or 0) for nombre, v in ventas}
     stock_map = {nombre: int(v or 0) for nombre, v in stock}
-    categorias = list(dict.fromkeys([*ventas_map, *stock_map]))[:10]  # orden: primero ventas, luego stock
+    costo_map = {nombre: float(v) if v is not None else None for nombre, v in costos}
+    categorias = list(dict.fromkeys([*ventas_map, *stock_map, *costo_map]))[:10]  # orden: primero ventas, luego stock
     return {
         "categorias": categorias,
         "ventas": [ventas_map.get(c, 0) for c in categorias],
         "stock": [stock_map.get(c, 0) for c in categorias],
+        "periodoVentas": {"desde": desde.isoformat(), "hasta": hasta.isoformat(),
+                          "dias": max((hasta.date() - desde.date()).days, 1)},
+        "costoPromedio": [costo_map.get(c) for c in categorias],
+        # El esquema no define mínimos de stock; null evita inventar una política comercial.
+        "stockMinimo": [None for _ in categorias],
     }
 
 
