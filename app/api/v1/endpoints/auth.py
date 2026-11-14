@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import smtplib
 import time
@@ -25,6 +26,7 @@ from app.models import Rol, Usuario
 from app.schemas import LoginRequest, OAuthLoginRequest, RegisterRequest, UserResponse
 
 router = APIRouter(tags=["Autenticación"])
+logger = logging.getLogger(__name__)
 
 RESET_CODE_TTL = 600
 RESET_RESEND_TTL = 60
@@ -51,6 +53,21 @@ def _reset_code_hash(correo: str, codigo: str) -> str:
     return hashlib.sha256(f"{correo.strip().lower()}:{codigo}".encode("utf-8")).hexdigest()
 
 
+def _valid_reset_code(correo: str, codigo: str) -> bool:
+    key = _reset_email_key(correo)
+    stored = cache_get_json(key)
+    valid = bool(stored) and secrets.compare_digest(
+        str(stored.get("hash", "")), _reset_code_hash(correo, codigo)
+    )
+    if not valid and stored:
+        attempts = int(stored.get("attempts", 0)) + 1
+        if attempts >= 5:
+            cache_delete(key)
+        else:
+            cache_set_json(key, {**stored, "attempts": attempts}, RESET_CODE_TTL)
+    return valid
+
+
 def _send_password_reset_email(correo: str, codigo: str) -> None:
     if not settings.mail_username or not settings.mail_password:
         raise RuntimeError("SMTP no está configurado")
@@ -69,7 +86,7 @@ def _send_password_reset_email(correo: str, codigo: str) -> None:
 
 
 @router.post("/auth/password/forgot")
-ndef request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)) -> dict:
+def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)) -> dict:
     """Envía un código de cinco dígitos; la respuesta no revela si existe el correo."""
     correo = str(payload.correo).strip().lower()
     user = db.scalar(select(Usuario).where(Usuario.correo == correo))
@@ -96,8 +113,7 @@ ndef request_password_reset(payload: PasswordResetRequest, db: Session = Depends
 @router.post("/auth/password/verify")
 def verify_password_reset_code(payload: PasswordResetVerifyRequest) -> dict:
     correo = str(payload.correo).strip().lower()
-    stored = cache_get_json(_reset_email_key(correo))
-    if not stored or not secrets.compare_digest(str(stored.get("hash", "")), _reset_code_hash(correo, payload.codigo)):
+    if not _valid_reset_code(correo, payload.codigo):
         raise HTTPException(400, "El código es inválido o venció")
     return {"valido": True}
 
@@ -106,8 +122,7 @@ def verify_password_reset_code(payload: PasswordResetVerifyRequest) -> dict:
 def complete_password_reset(payload: PasswordResetCompleteRequest, db: Session = Depends(get_db)) -> dict:
     correo = str(payload.correo).strip().lower()
     key = _reset_email_key(correo)
-    stored = cache_get_json(key)
-    if not stored or not secrets.compare_digest(str(stored.get("hash", "")), _reset_code_hash(correo, payload.codigo)):
+    if not _valid_reset_code(correo, payload.codigo):
         raise HTTPException(400, "El código es inválido o venció")
     user = db.scalar(select(Usuario).where(Usuario.correo == correo))
     if not user:
