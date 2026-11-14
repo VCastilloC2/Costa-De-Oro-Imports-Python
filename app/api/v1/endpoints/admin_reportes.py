@@ -27,6 +27,7 @@ from sqlalchemy import and_, distinct, extract, func, literal, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
+from app.core.media import cloudinary_url
 from app.dependencies import admin_user
 from app.models.entities import (
     Categoria,
@@ -192,7 +193,8 @@ def ventas_por_clientes(db: Session = Depends(get_db)) -> dict:
     return {"ventasClientes": ventas, "totalGeneral": _total_general_ventas(totales), "anio": anio}
 
 
-@router.get("/ventas-producto")
+@router.get("/ventas-productos")
+@router.get("/ventas-producto", include_in_schema=False)
 def ventas_por_producto(db: Session = Depends(get_db)) -> dict:
     """Ventas por producto del año actual (detalle_venta de compras PAGADO).
 
@@ -210,6 +212,7 @@ def ventas_por_producto(db: Session = Depends(get_db)) -> dict:
         select(
             p.codigo_producto.label("codigoProducto"),
             p.nombre.label("nombreProducto"),
+            p.imagen.label("imagen"),
             func.coalesce(e.razon_social, "Sin proveedor").label("referenciaFabrica"),
             func.sum(dv.cantidad).label("cantidadVendida"),
             func.sum(dv.subtotal).label("valorBruto"),
@@ -222,13 +225,14 @@ def ventas_por_producto(db: Session = Depends(get_db)) -> dict:
         .outerjoin(u_prov, p.usuario_id == u_prov.usuario_id)
         .outerjoin(e, u_prov.empresa_id == e.empresa_id)
         .where(_pagado_en(anio))
-        .group_by(p.producto_id, p.codigo_producto, p.nombre, e.razon_social)
+        .group_by(p.producto_id, p.codigo_producto, p.nombre, p.imagen, e.razon_social)
         .order_by(total.desc())
     ).all()
     ventas = [
         {
             "codigoProducto": r.codigoProducto,
             "nombreProducto": r.nombreProducto,
+            "imagen": cloudinary_url(r.imagen),
             "referenciaFabrica": r.referenciaFabrica,
             "cantidadVendida": _nullable_count(r.cantidadVendida),
             "valorBruto": _nullable_money(r.valorBruto),
@@ -242,6 +246,32 @@ def ventas_por_producto(db: Session = Depends(get_db)) -> dict:
         "totalGeneral": _total_general_ventas_detalle(db, anio),
         "anio": anio,
     }
+
+
+@router.get("/pedidos-recientes")
+def pedidos_recientes(db: Session = Depends(get_db)) -> dict:
+    """Pedidos recientes con cliente, producto, fecha, total y estado para el panel."""
+    filas = db.execute(
+        select(Compra, Usuario.nombres, Usuario.apellidos, Producto.nombre)
+        .outerjoin(Usuario, Usuario.usuario_id == Compra.usuario_id)
+        .outerjoin(DetalleVenta, DetalleVenta.compra_id == Compra.compra_id)
+        .outerjoin(Producto, Producto.producto_id == DetalleVenta.producto_id)
+        .order_by(Compra.fecha.desc(), Compra.compra_id.desc())
+    ).all()
+    pedidos: dict[int, dict] = {}
+    for compra, nombres, apellidos, producto in filas:
+        pedido = pedidos.setdefault(compra.compra_id, {
+            "compraId": compra.compra_id,
+            "numeroPedido": f"FC{compra.compra_id:04d}",
+            "cliente": f"{nombres or ''} {apellidos or ''}".strip(),
+            "producto": producto,
+            "fecha": _iso_datetime(compra.fecha),
+            "total": _money(compra.total),
+            "estado": compra.estado,
+        })
+        if not pedido["producto"] and producto:
+            pedido["producto"] = producto
+    return {"pedidosRecientes": sorted(pedidos.values(), key=lambda p: p["fecha"] or "", reverse=True)[:10]}
 
 
 @router.get("/ventas-cliente-producto")

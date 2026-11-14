@@ -309,61 +309,20 @@ def mapa_ventas(db: DB) -> dict:
 
 
 # --------------------------------------------------------------------------- histórico
-class _JavaRandom:
-    """``java.util.Random`` (LCG de 48 bits) para reproducir exactamente la serie de Spring."""
-
-    _MULT, _ADD, _MASK = 0x5DEECE66D, 0xB, (1 << 48) - 1
-
-    def __init__(self, seed: int) -> None:
-        self._seed = (seed ^ self._MULT) & self._MASK
-
-    def _next(self, bits: int) -> int:
-        self._seed = (self._seed * self._MULT + self._ADD) & self._MASK
-        return self._seed >> (48 - bits)
-
-    def next_double(self) -> float:
-        return ((self._next(26) << 27) + self._next(27)) * (1.0 / (1 << 53))
-
-
-def _con_subpicos(series: list[float], anios: list[int]) -> tuple[list[float], list[int]]:
-    """``generarDatosConSubpicos``: 10 puntos interpolados con ±7,5 % de variación entre cada par de años.
-
-    OJO: son puntos SINTÉTICOS (decorativos), igual que en Spring; los valores reales son los años exactos.
-    """
-    rnd = _JavaRandom(12345)
-    out_series, out_cats = [], []
-    for i, (valor, anio) in enumerate(zip(series, anios)):
-        out_series.append(valor)
-        out_cats.append(anio * 1000)
-        if i < len(series) - 1:
-            siguiente = series[i + 1]
-            for j in range(1, 11):
-                progresion = j / 11.0
-                intermedio = anio + progresion
-                interpolado = valor + (siguiente - valor) * progresion
-                con_subpico = interpolado + (rnd.next_double() * 0.15 - 0.075) * valor
-                con_subpico = max(con_subpico * 0.8, min(con_subpico * 1.2, con_subpico))
-                out_series.append(con_subpico)
-                out_cats.append(int(intermedio * 1000))
-    return out_series, out_cats
-
-
-@router.get("/historico-ventas", summary="Ventas pagadas por año (con puntos intermedios decorativos)")
+@router.get("/historico-ventas", summary="Ventas anuales 2020–2026")
 def historico_ventas(db: DB) -> dict:
     anio = extract("year", Compra.fecha)
     filas = db.execute(
         select(anio, func.sum(Compra.total))
-        .where(Compra.estado == "PAGADO", Compra.fecha.is_not(None))
+        .where(Compra.estado == "PAGADO", Compra.fecha.is_not(None), anio.between(2020, 2026))
         .group_by(anio)
         .order_by(anio)
     ).all()
-    anios = [int(a) for a, _ in filas]
-    series = [float(t or 0) for _, t in filas]
+    ventas_por_anio = {int(a): float(total or 0) for a, total in filas}
+    categorias = list(range(2020, 2027))
+    series = [ventas_por_anio.get(anio, 0.0) for anio in categorias]
     maximo = max(series, default=0.0)
-    maximo = max(maximo, 0.0)
     minimo = min(series) if series else 0.0
     promedio = sum(series) / len(series) if series else 0.0
-    if len(series) > 1:
-        series, anios = _con_subpicos(series, anios)
-    return {"series": series, "categorias": anios, "maxVenta": maximo, "minVenta": minimo,
+    return {"series": series, "categorias": categorias, "maxVenta": maximo, "minVenta": minimo,
             "promedioVentas": promedio}
