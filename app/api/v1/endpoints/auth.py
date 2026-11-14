@@ -1,16 +1,21 @@
 """Password and OAuth authentication endpoints."""
 from __future__ import annotations
 
+import hashlib
+import secrets
+import smtplib
 import time
+from email.message import EmailMessage
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_user, security
 from app.core.cache import (
-    cache_auth_credentials, cache_auth_user, cache_get_json, cache_set_json,
+    cache_auth_credentials, cache_auth_user, cache_delete, cache_get_json, cache_set_json,
     credential_cache_key, revoke_token, token_cache_key, user_cache_key,
 )
 from app.core.config import settings
@@ -20,6 +25,102 @@ from app.models import Rol, Usuario
 from app.schemas import LoginRequest, OAuthLoginRequest, RegisterRequest, UserResponse
 
 router = APIRouter(tags=["Autenticación"])
+
+RESET_CODE_TTL = 600
+RESET_RESEND_TTL = 60
+
+
+class PasswordResetRequest(BaseModel):
+    correo: EmailStr
+
+
+class PasswordResetVerifyRequest(PasswordResetRequest):
+    codigo: str = Field(pattern=r"^\d{5}$")
+
+
+class PasswordResetCompleteRequest(PasswordResetVerifyRequest):
+    nueva_contrasena: str = Field(min_length=6, max_length=128)
+
+
+def _reset_email_key(correo: str) -> str:
+    digest = hashlib.sha256(correo.strip().lower().encode("utf-8")).hexdigest()
+    return f"auth:password-reset:{digest}"
+
+
+def _reset_code_hash(correo: str, codigo: str) -> str:
+    return hashlib.sha256(f"{correo.strip().lower()}:{codigo}".encode("utf-8")).hexdigest()
+
+
+def _send_password_reset_email(correo: str, codigo: str) -> None:
+    if not settings.mail_username or not settings.mail_password:
+        raise RuntimeError("SMTP no está configurado")
+    mensaje = EmailMessage()
+    mensaje["Subject"] = "Código para restablecer tu contraseña"
+    mensaje["From"] = settings.mail_username
+    mensaje["To"] = correo
+    mensaje.set_content(
+        f"Tu código para restablecer la contraseña es: {codigo}\n\n"
+        f"Este código vence en 10 minutos. Si no solicitaste este cambio, ignora este mensaje."
+    )
+    with smtplib.SMTP(settings.mail_host, settings.mail_port, timeout=20) as smtp:
+        smtp.starttls()
+        smtp.login(settings.mail_username, settings.mail_password)
+        smtp.send_message(mensaje)
+
+
+@router.post("/auth/password/forgot")
+ndef request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)) -> dict:
+    """Envía un código de cinco dígitos; la respuesta no revela si existe el correo."""
+    correo = str(payload.correo).strip().lower()
+    user = db.scalar(select(Usuario).where(Usuario.correo == correo))
+    if not user:
+        return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
+    if not (settings.valkey_url and settings.mail_username and settings.mail_password):
+        raise HTTPException(503, "El servicio de recuperación no está configurado")
+    resend_key = f"{_reset_email_key(correo)}:resend"
+    if cache_get_json(resend_key):
+        raise HTTPException(429, "Espera un minuto antes de solicitar otro código")
+    codigo = f"{secrets.randbelow(100000):05d}"
+    if not cache_set_json(_reset_email_key(correo), {"hash": _reset_code_hash(correo, codigo)}, RESET_CODE_TTL):
+        raise HTTPException(503, "No fue posible iniciar la recuperación")
+    try:
+        _send_password_reset_email(correo, codigo)
+        cache_set_json(resend_key, True, RESET_RESEND_TTL)
+    except Exception as exc:
+        cache_delete(_reset_email_key(correo))
+        logger.exception("No fue posible enviar el código de recuperación")
+        raise HTTPException(502, "No fue posible enviar el correo de recuperación") from exc
+    return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
+
+
+@router.post("/auth/password/verify")
+def verify_password_reset_code(payload: PasswordResetVerifyRequest) -> dict:
+    correo = str(payload.correo).strip().lower()
+    stored = cache_get_json(_reset_email_key(correo))
+    if not stored or not secrets.compare_digest(str(stored.get("hash", "")), _reset_code_hash(correo, payload.codigo)):
+        raise HTTPException(400, "El código es inválido o venció")
+    return {"valido": True}
+
+
+@router.post("/auth/password/reset")
+def complete_password_reset(payload: PasswordResetCompleteRequest, db: Session = Depends(get_db)) -> dict:
+    correo = str(payload.correo).strip().lower()
+    key = _reset_email_key(correo)
+    stored = cache_get_json(key)
+    if not stored or not secrets.compare_digest(str(stored.get("hash", "")), _reset_code_hash(correo, payload.codigo)):
+        raise HTTPException(400, "El código es inválido o venció")
+    user = db.scalar(select(Usuario).where(Usuario.correo == correo))
+    if not user:
+        cache_delete(key)
+        raise HTTPException(400, "El código es inválido o venció")
+    user.password = hash_password(payload.nueva_contrasena)
+    db.commit()
+    cache_delete(key)
+    cache_delete(f"{key}:resend")
+    cache_delete(credential_cache_key(correo))
+    cache_auth_credentials(correo, user.usuario_id, user.password)
+    cache_delete(user_cache_key(user.usuario_id))
+    return {"mensaje": "La contraseña se restableció correctamente"}
 
 
 def _user_active(user: Usuario) -> bool:

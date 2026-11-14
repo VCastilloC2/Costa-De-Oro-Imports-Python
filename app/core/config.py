@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     password_key_recaptcha: str | None = None
     mail_username: str | None = None
     mail_password: str | None = None
+    mail_host: str = Field("smtp.gmail.com", validation_alias=AliasChoices("MAIL_HOST"))
+    mail_port: int = Field(587, ge=1, le=65535, validation_alias=AliasChoices("MAIL_PORT"))
     cloud_name: str | None = None
     cloud_api_key: str | None = None
     cloud_api_secret: str | None = None
