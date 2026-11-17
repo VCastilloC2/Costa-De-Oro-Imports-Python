@@ -22,10 +22,11 @@ from app.models import Compra
 from app.prediction.model import SalesEnsemble, regression_metrics, train_sales_ensemble
 from app.prediction.preparation import (
     GRANULARITIES, TARGET, aggregate_by_period, build_features, build_history_series,
-    clean_transactions, history_signature, load_transactions,
+    clean_transactions, history_signature, load_transactions, prepare_sales_data,
 )
 from app.prediction.prediction_service import prediction_service
 from app.prediction.timeseries import METHOD_NAME, backtest, fit_holt_winters, monthly_totals
+from app.prediction.tf_model import ARCHITECTURE
 
 logger = logging.getLogger(__name__)
 
@@ -315,7 +316,7 @@ def forecast_month(db: Session, year: int, month: int, today: date | None = None
 
 def evaluate_recent_months(db: Session, months: int = 5,
                            today: date | None = None) -> dict:
-    """Walk-forward comparison for the last closed calendar months, without target leakage."""
+    """Compare the active neural model's held-out months; use statistical walk-forward if stale."""
     if not 1 <= months <= 12:
         raise ValueError("meses debe estar entre 1 y 12")
     today = today or date.today()
@@ -324,6 +325,48 @@ def evaluate_recent_months(db: Session, months: int = 5,
     all_months = monthly_totals(data, last_closed)
     if len(all_months) < 13:
         raise ValueError("Se requieren al menos 13 meses cerrados para comparar predicciones recientes")
+
+    active_version = model_store.active_version("monthly")
+    if active_version:
+        try:
+            metadata = model_store.read_metadata("monthly", active_version)
+            extraction = load_transactions(db, "database")
+            prepared = prepare_sales_data(extraction, "monthly")
+            if (metadata.get("firma_serie") == history_signature(prepared.series)
+                    and metadata.get("arquitectura") == ARCHITECTURE):
+                saved = (metadata.get("metricas_preliminares") or {}).get("comparacion") or []
+                recent = saved[-months:]
+                if recent:
+                    rows = [{
+                        "fecha": str(row["fecha"])[:7],
+                        "valor_real": float(row["real"]),
+                        "valor_predicho": float(row["predicho"]),
+                        "error_absoluto": abs(float(row["real"]) - float(row["predicho"])),
+                        "error_porcentual": row.get("error_porcentual"),
+                        "modelo": f"tensorflow_keras_v{active_version}",
+                    } for row in recent]
+                    actual_values = np.asarray([row["valor_real"] for row in rows], dtype=float)
+                    predicted_values = np.asarray([row["valor_predicho"] for row in rows], dtype=float)
+                    errors = np.abs(actual_values - predicted_values)
+                    total_real = float(np.abs(actual_values).sum())
+                    wmape = float(errors.sum() / total_real * 100.0) if total_real > 0 else None
+                    return {
+                        "meses_solicitados": months,
+                        "meses_evaluados": len(rows),
+                        "desde": rows[0]["fecha"],
+                        "hasta": rows[-1]["fecha"],
+                        "comparacion": rows,
+                        "metricas": {
+                            "mae": round(float(errors.mean()), 2),
+                            "mse": round(float(np.mean((actual_values - predicted_values) ** 2)), 2),
+                            "wmape": round(wmape, 2) if wmape is not None else None,
+                        },
+                        "modelo": f"tensorflow_keras_v{active_version}",
+                        "tipo_evaluacion": "holdout_temporal_del_entrenamiento",
+                        "fuente_datos": "database",
+                    }
+        except (KeyError, TypeError, ValueError, OSError):
+            logger.exception("No se pudo usar el holdout del modelo TensorFlow vigente; se evalúa el método estadístico")
 
     first_test = max(12, len(all_months) - months)
     rows = []
@@ -365,6 +408,8 @@ def evaluate_recent_months(db: Session, months: int = 5,
             "mse": round(float(np.mean((actual_values - predicted_values) ** 2)), 2),
             "wmape": round(wmape, 2) if wmape is not None else None,
         },
+        "modelo": rows[0]["modelo"] if rows else METHOD_NAME,
+        "tipo_evaluacion": "walk_forward_estadistico",
         "fuente_datos": "database",
     }
 

@@ -86,6 +86,13 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
 cuando la pérdida de validación deja de mejorar. Volver a entrenar en cada consulta sin cambios en MySQL
 añadiría latencia y riesgo de sobreajuste; la firma de la serie evita esos entrenamientos repetidos.
 
+#### Datos sintéticos de balance (solo base local de pruebas)
+
+`python -m app.prediction.scripts_balance_synthetic_sales` muestra una vista previa sin escribir. Con
+`--apply` añade compras y detalles claramente marcados para llevar 2025 y enero–octubre de 2026 al 102%
+del mismo mes de 2024. Es idempotente. Para borrar solo esas filas, usa `--remove-synthetic`. No ejecutar
+este generador en una base con ventas reales.
+
 > **Despliegues serverless (Vercel):** el sistema de archivos es efímero y los hilos de fondo no
 > sobreviven a la respuesta. Usa `"wait": true` al entrenar y apunta `PREDICTION_MODEL_DIR` a un
 > almacenamiento persistente, o entrena en un servidor con disco persistente (Render, VM, contenedor).

@@ -158,6 +158,9 @@ def evaluar_ultimos_meses(
     logger.info("spring evaluar-ultimos-meses meses=%s by=%s requestId=%s",
                 meses, principal["name"], _request_id(request))
     try:
+        if (settings.prediction_train_before_startup
+                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
+            training_service.ensure_monthly_model_current(db)
         return evaluate_recent_months(db, meses)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
