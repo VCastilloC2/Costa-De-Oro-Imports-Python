@@ -312,17 +312,21 @@ def mapa_ventas(db: DB) -> dict:
 @router.get("/historico-ventas", summary="Ventas anuales 2020–2026")
 def historico_ventas(db: DB) -> dict:
     anio = extract("year", Compra.fecha)
+    mes = extract("month", Compra.fecha)
     filas = db.execute(
         select(anio, func.sum(Compra.total))
-        .where(Compra.estado == "PAGADO", Compra.fecha.is_not(None), anio.between(2020, 2026))
+        # Same-period comparison: avoid comparing a partial current year to full prior years.
+        .where(Compra.estado == "PAGADO", Compra.fecha.is_not(None), anio.between(2020, 2026),
+               mes.between(1, 10))
         .group_by(anio)
         .order_by(anio)
     ).all()
     ventas_por_anio = {int(a): float(total or 0) for a, total in filas}
-    categorias = list(range(2020, 2027))
-    series = [ventas_por_anio.get(anio, 0.0) for anio in categorias]
+    years = list(range(2020, 2027))
+    categorias = [year * 1000 for year in years]
+    series = [ventas_por_anio.get(year, 0.0) for year in years]
     maximo = max(series, default=0.0)
     minimo = min(series) if series else 0.0
     promedio = sum(series) / len(series) if series else 0.0
     return {"series": series, "categorias": categorias, "maxVenta": maximo, "minVenta": minimo,
-            "promedioVentas": promedio}
+            "promedioVentas": promedio, "periodoComparado": "enero-octubre"}

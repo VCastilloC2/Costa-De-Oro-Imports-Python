@@ -25,11 +25,12 @@ from app.core.cache import cache_get_json, cache_set_json
 from app.core.config import settings
 from app.core.database import get_db
 from app.prediction.engine import forecast_month, generate_forecast
+from app.prediction.artifacts import model_store
 from app.prediction.repository import SCOPE_GENERATE, SCOPE_READ
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/prediccion", tags=["Integración Spring Boot"])
+router = APIRouter(prefix="/api/prediccion", tags=["Predicción"])
 
 
 class SolicitudPrediccion(BaseModel):
@@ -112,10 +113,32 @@ def datos_grafica(
     logger.info("spring datos-grafica anios=%s proyeccion=%s by=%s requestId=%s",
                 anios, proyeccion_meses, principal["name"], _request_id(request))
     try:
-        return cached_prediction(
-            f"spring:prediccion:grafica:v2:{anios}:{proyeccion_meses}",
-            lambda: generate_forecast(db, years=anios, forecast_months=proyeccion_meses),
-        )
+        # Sales change as purchases are paid. Always read the current MySQL aggregates here;
+        # a long-lived Valkey/in-process forecast cache made the dashboard look stale.
+        # Este endpoint alimenta el dashboard de ventas: debe reflejar MySQL en cada llamada,
+        # aunque otro endpoint/modelo esté configurado para usar el CSV de respaldo.
+        result = generate_forecast(db, years=anios, forecast_months=proyeccion_meses,
+                                   data_source="database")
+        modelo_actual = result.get("metricas", {}).get("modelo", "")
+        if modelo_actual == "tensorflow_keras":
+            metadata = model_store.read_metadata("monthly")
+            history = (metadata.get("entrenamiento") or {}).get("historial") or {}
+            loss = history.get("loss") or []
+            result["historial_entrenamiento"] = {
+                "epocas": list(range(1, len(loss) + 1)), "loss": loss,
+            }
+            result["variables_utilizadas"] = [{"nombre": "ventas", "tipo": "numeric", "rol": "objetivo"}] + [
+                {"nombre": name, "tipo": "numeric", "rol": "predictora"}
+                for name in (metadata.get("variables") or [])
+            ]
+            result["herramientas"] = ["Python", "FastAPI", "Pandas", "NumPy", "TensorFlow/Keras", "Scikit-Learn", "StandardScaler"]
+        else:
+            result["historial_entrenamiento"] = {"epocas": [], "loss": []}
+            result["variables_utilizadas"] = []
+            modelo = modelo_actual or "holt_winters_amortiguado"
+            nombre_modelo = "Referencia estacional (12 meses)" if modelo.startswith("naive_estacional") else "Holt-Winters amortiguado"
+            result["herramientas"] = ["Python", "FastAPI", "Pandas", "NumPy", f"Pronóstico: {nombre_modelo}"]
+        return result
     except ValueError as exc:  # datos insuficientes, rango inválido...
         raise HTTPException(422, str(exc)) from exc
 
@@ -131,7 +154,7 @@ def generar(
                 payload.anno, payload.mes, principal["name"], _request_id(request))
     try:
         result = cached_prediction(
-            f"spring:prediccion:mes:v2:{payload.anno}:{payload.mes}",
+            f"spring:prediccion:mes:v4:{payload.anno}:{payload.mes}",
             lambda: forecast_month(db, payload.anno, payload.mes),
         )
     except ValueError as exc:

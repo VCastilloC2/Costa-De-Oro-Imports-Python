@@ -20,7 +20,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.prediction.artifacts import ModelStore, model_store
 from app.prediction.evaluation import ACCURACY_BASIS, comparison_rows, regression_report
-from app.prediction.preparation import TARGET, PreparationResult, load_transactions, prepare_sales_data
+from app.prediction.preparation import (
+    TARGET, PreparationResult, history_signature, load_transactions, prepare_sales_data,
+)
 from app.prediction.repository import HistoryUnavailableError, register_model, save_evaluation
 from app.prediction.tf_model import (
     ARCHITECTURE, MODEL_NAME, TrainingConfig, build_sales_network, fit_network, predict_scaled,
@@ -152,6 +154,7 @@ class TrainingService:
                 "fin_entrenamiento": splits["entrenamiento"]["fecha_periodo"].max().date().isoformat(),
                 "fin_validacion": splits["validacion"]["fecha_periodo"].max().date().isoformat(),
                 "fin_historia": prepared.series["fecha_periodo"].max().date().isoformat(),
+                "firma_serie": history_signature(prepared.series),
                 "preparacion": prepared.summary,
                 "formas_tensores": data.shapes(),
                 "entrenamiento": {

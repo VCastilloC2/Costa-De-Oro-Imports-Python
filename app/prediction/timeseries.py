@@ -143,29 +143,54 @@ def _error_metrics(actual: np.ndarray, predicted: np.ndarray) -> dict:
     abs_err = np.abs(actual - predicted)
     return {
         "mae": round(float(abs_err.mean()), 2),
+        "mse": round(float(np.mean((actual - predicted) ** 2)), 2),
         "wape": round(float(abs_err.sum() / total * 100), 2) if total > 0 else None,
+        "error_porcentual": round(float(abs_err.sum() / total * 100), 2) if total > 0 else None,
+        "porcentaje_prediccion": round(max(0.0, 100.0 - float(abs_err.sum() / total * 100)), 2) if total > 0 else None,
     }
 
 
 def backtest(y: pd.Series, months: int = BACKTEST_MONTHS) -> dict | None:
-    """Entrena sin los últimos ``months`` meses y mide el error al pronosticarlos.
+    """Backtest de origen móvil: cada mes se pronostica usando sólo los datos disponibles antes.
 
-    Se compara con el método ingenuo estacional (repetir el mismo mes del año anterior):
-    si el modelo no mejora a ese baseline, la proyección no aporta mucho.
+    Simula la operación real, donde FastAPI vuelve a cargar ventas nuevas y ajusta el pronóstico
+    cada mes. El baseline estacional se evalúa en los mismos meses: repetir el valor de 12 meses
+    antes. La métrica resultante es de un paso (un mes), no una garantía para horizontes largos.
     """
     if len(y) < MIN_MONTHS_BACKTEST:
         return None
-    train, test = y.iloc[:-months], y.iloc[-months:]
-    model = fit_holt_winters(train)
-    predicted = model.forecast(months)
-    actual = test.to_numpy(dtype=float)
-    naive = y.iloc[-months - SEASON:-SEASON].to_numpy(dtype=float)
+    start = max(len(y) - months, 2 * SEASON)
+    positions = range(start, len(y))
+    actual_values, holt_values, naive_values = [], [], []
+    for position in positions:
+        train = y.iloc[:position]
+        if len(train) < SEASON:
+            continue
+        model = fit_holt_winters(train)
+        actual_values.append(float(y.iloc[position]))
+        holt_values.append(float(model.forecast(1)[0]))
+        naive_values.append(float(y.iloc[position - SEASON]))
+    if not actual_values:
+        return None
+    actual = np.asarray(actual_values, dtype=float)
+    predicted = np.asarray(holt_values, dtype=float)
+    naive = np.asarray(naive_values, dtype=float)
+    holt_metrics = _error_metrics(actual, predicted)
+    naive_metrics = _error_metrics(actual, naive)
+    # A seasonal persistence baseline is safer when the holdout contains a regime change,
+    # such as multiple consecutive zero-sales months. Select by WAPE on the same holdout.
+    use_naive = (naive_metrics["wape"] is not None and
+                 (holt_metrics["wape"] is None or naive_metrics["wape"] < holt_metrics["wape"]))
     result = {
         "metodo": "backtest",
-        "meses": months,
-        "desde": str(test.index[0]),
-        "hasta": str(test.index[-1]),
-        **_error_metrics(actual, predicted),
+        "tipo_validacion": "rolling_origin_1_mes",
+        "modelo_elegido": "naive_estacional_rolling" if use_naive else "holt_winters_amortiguado_rolling",
+        "meses": len(actual),
+        "desde": str(y.index[start]),
+        "hasta": str(y.index[-1]),
+        **(naive_metrics if use_naive else holt_metrics),
+        "metricas_holt_winters": holt_metrics,
+        "metricas_naive_estacional": naive_metrics,
     }
-    result["wape_ingenuo_estacional"] = _error_metrics(actual, naive)["wape"]
+    result["wape_ingenuo_estacional"] = naive_metrics["wape"]
     return result

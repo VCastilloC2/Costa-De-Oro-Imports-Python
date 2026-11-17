@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import math
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -537,4 +538,13 @@ def build_history_series(
     clean, _ = clean_transactions(extraction.transactions, reference)
     clean, _ = apply_outlier_bounds(clean, bounds)
     return aggregate_by_period(clean, cfg, reference)
+
+
+def history_signature(series: pd.DataFrame) -> str:
+    """Stable digest of the target series that a trained model version consumed."""
+    canonical = "\n".join(
+        f"{period}|{float(value):.6f}"
+        for period, value in zip(series["periodo"].astype(str), series[TARGET].astype(float))
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

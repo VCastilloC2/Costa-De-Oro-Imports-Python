@@ -40,7 +40,7 @@ red neuronal.
 | 2. Transformación | `app/prediction/transformation.py` | Matrices X/Y float32, `StandardScaler` ajustado sólo con entrenamiento, orden de variables persistido, transformación idéntica en predicción |
 | 3. Modelado | `app/prediction/tf_model.py` | Entrada → Dense(16, ReLU) → Dense(8, ReLU) → Dense(1, Linear); Adam, MSE, MAE, EarlyStopping |
 | 4. Entrenamiento | `app/prediction/training_service.py` | Operación independiente, sólo ADMIN, un entrenamiento a la vez, registro de épocas/pérdidas/versión/fecha |
-| 5. Métricas preliminares | `app/prediction/evaluation.py` | MAE, MSE, RMSE, MAPE, % de acierto aproximado sobre el conjunto de prueba |
+| 5. Métricas preliminares | `app/prediction/evaluation.py` | MAE, MSE, RMSE y WMAPE sobre el conjunto de prueba; la precisión se deriva de WMAPE para tolerar meses con cero ventas |
 | 6. Integración | `app/prediction/prediction_service.py` | Carga modelo + scaler, valida, transforma, ejecuta TensorFlow, variación %, métricas, historial |
 | Persistencia | `app/prediction/artifacts.py`, `app/prediction/repository.py` | Artefactos versionados en disco; historial y registro en MySQL |
 
@@ -72,8 +72,10 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
    o bien `python -m app.prediction.scripts_pred --create-ml-tables`.
 2. Configura en `.env` (ver `.env.example`): `PREDICTION_MODEL_DIR`, `PREDICTION_ALLOWED_ROLES`,
    `PREDICTION_MAX_CONCURRENT`, `PREDICTION_INFERENCE_TIMEOUT_SECONDS`, `PREDICTION_DEDUP_WINDOW_SECONDS`.
-3. Entrena (ADMIN): `POST /api/v1/predictions/model/train` o
-   `python -m app.prediction.scripts_pred --train-tf --granularity monthly`.
+3. Entrena con los datos actuales de MySQL (ADMIN): `POST /api/v1/predictions/model/train` con
+   `{"granularity":"monthly","data_source":"database","wait":true}`. `database` evita usar el CSV
+   de respaldo si falla la conexión. Comprueba en la respuesta `preparation.fuente_datos` y
+   `fin_historia`; deben indicar `database` y el último mes realmente cargado.
 4. Genera predicciones: `POST /api/v1/predictions/generate`.
 
 > **Despliegues serverless (Vercel):** el sistema de archivos es efímero y los hilos de fondo no
@@ -81,6 +83,11 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
 > almacenamiento persistente, o entrena en un servidor con disco persistente (Render, VM, contenedor).
 
 ## 3. Endpoints
+
+En Swagger (`/doc`) todas las rutas de predicción aparecen bajo el único grupo **Predicción**. El nombre
+del grupo es solo una categoría documental: se mantienen varias rutas porque cada operación tiene una
+responsabilidad y un permiso distinto (entrenar, generar, consultar métricas o integrar Spring). Cada
+framework consume el mismo contrato HTTP/JSON; TensorFlow solo se instala y ejecuta en FastAPI.
 
 | Método | Ruta | Autenticación | Descripción |
 |---|---|---|---|
@@ -99,6 +106,18 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
 | GET | `/{prediction_id}` | JWT o API Key (`predictions:read`) | Detalle de una predicción |
 | POST/GET/DELETE | `/clients` | **JWT ADMIN** | Emitir, listar y revocar API Keys |
 | POST | `/demand` | JWT ADMIN | Ruta previa (ensamble); se mantiene por compatibilidad con Flutter |
+
+La integración web/Spring tiene además las rutas completas `GET /api/prediccion/datos-grafica` y
+`POST /api/prediccion/generar`. La primera devuelve historia mensual, proyección, backtest y métricas;
+la segunda predice un período concreto. Ambas requieren una API Key de servicio con el scope adecuado.
+El dashboard Spring expone `GET /api/v1/predicciones/ventas?meses=12` para que navegador o Flutter
+consulten la gráfica a través de Spring sin guardar la API Key de FastAPI en el cliente.
+
+La métrica `metricas.validacion` de la gráfica usa backtest rodante de un mes: FastAPI vuelve a ajustar
+el modelo con lo disponible antes de cada mes y compara con la venta real del mes siguiente. Esta
+medición representa una proyección que se actualiza cada mes; no garantiza la precisión de una
+proyección fija a 12 o 24 meses. Si `PREDICTION_DATA_SOURCE=database`, una falla de MySQL ya genera un
+error visible y no cambia silenciosamente a datos de demostración CSV.
 
 ### Contrato de respuesta
 
@@ -151,7 +170,8 @@ Respuesta (estructura; los valores dependen de tus datos reales):
                   "predicted_sales": 0.0, "currency": "COP", "previous_period_sales": 0.0,
                   "variation_percentage": 0.0, "breakdown": [ { "period_start": "...", "period_end": "...", "predicted_sales": 0.0 } ] },
     "performance": { "metric_type": "PRELIMINAR", "mae": 0.0, "mse": 0.0, "rmse": 0.0,
-                     "mape_percentage": 0.0, "accuracy_percentage": 0.0, "evaluated_samples": 0 },
+                     "mape_percentage": null, "wape_percentage": 0.0,
+                     "accuracy_percentage": 100.0, "evaluated_samples": 0 },
     "prediction_variables": [ { "name": "ventas_lag_1", "value": 0.0, "description": "..." } ],
     "history": { "data_source": "database", "last_complete_period": "...", "periods_available": 0 },
     "generated_at": "..."
@@ -166,7 +186,7 @@ Respuesta (estructura; los valores dependen de tus datos reales):
   encadena sus propias estimaciones, por lo que su error real suele ser mayor.
 - **POSTERIOR**: `GET /compare` (sólo lectura) y `POST /model/evaluate` (persiste) comparan cada
   predicción del historial con las ventas reales una vez que su período terminó.
-- `accuracy_percentage = max(0, 100 − MAPE)`; es aproximado. Si no hay muestras suficientes los campos
+- `accuracy_percentage = max(0, 100 − WMAPE)`; se pondera por ventas y no divide por el valor de cada mes. Si las ventas reales totales del backtest son cero o no hay muestras suficientes, los campos
   son `null`: el servicio nunca rellena métricas que no pudo calcular.
 
 ## 4. Seguridad
@@ -266,6 +286,7 @@ public record Forecast(String period, String granularity,
 public record Performance(@JsonProperty("metric_type") String metricType,
                           BigDecimal mae, BigDecimal mse, BigDecimal rmse,
                           @JsonProperty("mape_percentage") BigDecimal mapePercentage,
+                          @JsonProperty("wape_percentage") BigDecimal wapePercentage,
                           @JsonProperty("accuracy_percentage") BigDecimal accuracyPercentage,
                           @JsonProperty("evaluated_samples") Integer evaluatedSamples) {}
 

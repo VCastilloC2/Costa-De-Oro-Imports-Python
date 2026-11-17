@@ -14,7 +14,7 @@ import math
 
 import numpy as np
 
-ACCURACY_BASIS = "Porcentaje de acierto aproximado = max(0, 100 - MAPE)"
+ACCURACY_BASIS = "Porcentaje de predicción = max(0, 100 - WMAPE)"
 
 
 def _round(value, digits=4):
@@ -33,19 +33,17 @@ def regression_report(actual, predicted) -> dict:
                 "accuracy_percentage": None, "samples": n, "mape_samples": 0}
     errors = predicted - actual
     mse = float(np.mean(errors ** 2))
-    nonzero = actual != 0
-    mape = float(np.mean(np.abs(errors[nonzero] / actual[nonzero])) * 100) if nonzero.any() else None
     total = float(np.sum(np.abs(actual)))
     wape = float(np.sum(np.abs(errors)) / total * 100) if total > 0 else None
     return {
         "mae": _round(np.mean(np.abs(errors))),
         "mse": _round(mse),
         "rmse": _round(math.sqrt(mse)),
-        "mape_percentage": _round(mape),
+        "mape_percentage": None,
         "wape_percentage": _round(wape),
-        "accuracy_percentage": _round(max(0.0, 100.0 - mape), 2) if mape is not None else None,
+        "accuracy_percentage": _round(max(0.0, 100.0 - wape), 2) if wape is not None else None,
         "samples": n,
-        "mape_samples": int(nonzero.sum()),
+        "mape_samples": 0,
     }
 
 

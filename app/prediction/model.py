@@ -7,18 +7,37 @@ from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
+from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 CATEGORICAL = ["dia_semana", "categoria_principal", "ciudad_cliente"]
 NUMERIC = ["anno", "mes", "cantidad_productos", "total_unidades", "precio_promedio"]
 FEATURES = NUMERIC + CATEGORICAL
+MODEL_VARIABLES = [{"nombre": "venta_total", "tipo": "numeric", "rol": "objetivo"}] + [
+    {"nombre": name, "tipo": ("integer" if name in {"anno", "cantidad_productos", "total_unidades"}
+                                 else "numeric" if name in {"mes", "precio_promedio"} else "categorical"),
+     "rol": "predictora"}
+    for name in NUMERIC + CATEGORICAL
+]
+
+
+def _preprocessor() -> ColumnTransformer:
+    return ColumnTransformer(
+        transformers=[
+            ("numeric", StandardScaler(), NUMERIC),
+            ("categorical", OneHotEncoder(handle_unknown="ignore", sparse_output=False), CATEGORICAL),
+        ],
+        remainder="drop",
+        verbose_feature_names_out=False,
+    )
 
 
 class SalesRegression:
     def __init__(self) -> None:
-        self.estimator = LinearRegression()
+        self.estimator = Pipeline([("preprocessor", _preprocessor()), ("regressor", LinearRegression())])
         self.columns: list[str] = []
         self.coeficientes_: pd.Series | None = None
 
@@ -27,23 +46,22 @@ class SalesRegression:
         missing = set(FEATURES) - set(data.columns)
         if missing:
             raise ValueError(f"Faltan variables para el modelo: {sorted(missing)}")
-        return pd.get_dummies(data[FEATURES], columns=CATEGORICAL, dtype=float)
+        return data[FEATURES].copy()
 
     def fit(self, data: pd.DataFrame) -> "SalesRegression":
         if data.empty:
             raise ValueError("No hay ventas históricas para entrenar el modelo")
         matrix = self._matrix(data)
         target = pd.to_numeric(data["venta_total"], errors="coerce").fillna(0).to_numpy(dtype=float)
-        self.columns = list(matrix.columns)
-        self.estimator.fit(matrix.to_numpy(dtype=float), target)
-        self.coeficientes_ = pd.Series(self.estimator.coef_, index=self.columns)
+        self.estimator.fit(matrix, target)
+        self.columns = list(self.estimator.named_steps["preprocessor"].get_feature_names_out())
+        self.coeficientes_ = pd.Series(self.estimator.named_steps["regressor"].coef_, index=self.columns)
         return self
 
     def predict(self, data: pd.DataFrame) -> np.ndarray:
         if not self.columns:
             raise RuntimeError("El modelo todavía no está entrenado")
-        matrix = self._matrix(data).reindex(columns=self.columns, fill_value=0)
-        return np.clip(self.estimator.predict(matrix.to_numpy(dtype=float)), 0.0, None)
+        return np.clip(self.estimator.predict(self._matrix(data)), 0.0, None)
 
 
 class SalesEnsemble:
@@ -58,6 +76,7 @@ class SalesEnsemble:
         self.y_scaler = StandardScaler()
         self.keras_model = None
         self.tf = None
+        self.loss_history: list[float] = []
 
     def fit(self, data: pd.DataFrame) -> "SalesEnsemble":
         if data.empty:
@@ -73,9 +92,9 @@ class SalesEnsemble:
 
         self.regression.fit(data)
         self.tf = tf
-        matrix = self.regression._matrix(data)
-        self.columns = list(matrix.columns)
-        x = matrix.to_numpy(dtype=np.float32)
+        matrix = self.regression.estimator.named_steps["preprocessor"].transform(self.regression._matrix(data))
+        self.columns = list(self.regression.columns)
+        x = np.asarray(matrix, dtype=np.float32)
         y = pd.to_numeric(data["venta_total"], errors="coerce").fillna(0).to_numpy(dtype=np.float32).reshape(-1, 1)
         x_scaled = self.x_scaler.fit_transform(x).astype(np.float32)
         y_scaled = self.y_scaler.fit_transform(y).astype(np.float32)
@@ -89,18 +108,19 @@ class SalesEnsemble:
                 tf.keras.layers.Dense(1),
             ])
             self.keras_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.01), loss="mse")
-            self.keras_model.fit(
+            history = self.keras_model.fit(
                 x_scaled, y_scaled, epochs=40, batch_size=min(16, max(1, len(y_scaled))),
                 shuffle=False, verbose=0,
             )
+        self.loss_history = [float(value) for value in history.history.get("loss", [])]
 
         return self
 
     def predict_models(self, data: pd.DataFrame) -> dict[str, np.ndarray]:
         if self.keras_model is None or self.tf is None:
             raise RuntimeError("El ensamble todavía no está entrenado")
-        matrix = self.regression._matrix(data).reindex(columns=self.columns, fill_value=0)
-        x = matrix.to_numpy(dtype=np.float32)
+        matrix = self.regression.estimator.named_steps["preprocessor"].transform(self.regression._matrix(data))
+        x = np.asarray(matrix, dtype=np.float32)
         x_scaled = self.x_scaler.transform(x).astype(np.float32)
         with self.tf.device("/CPU:0"):
             keras_scaled = self.keras_model(self.tf.convert_to_tensor(x_scaled), training=False).numpy().reshape(-1, 1)
@@ -137,12 +157,16 @@ def regression_metrics(actual, predicted) -> dict:
     actual = np.asarray(actual, dtype=float)
     predicted = np.asarray(predicted, dtype=float)
     if len(actual) == 0:
-        return {"mae": None, "rmse": None, "mape": None, "r2": None, "n": 0}
-    nonzero = actual != 0
+        return {"mae": None, "mse": None, "rmse": None, "error_porcentual": None,
+                "porcentaje_prediccion": None, "r2": None, "n": 0}
+    total_actual = float(np.sum(np.abs(actual)))
+    error_percentage = float(np.sum(np.abs(actual - predicted)) / total_actual * 100) if total_actual > 0 else None
     return {
         "mae": round(float(mean_absolute_error(actual, predicted)), 4),
+        "mse": round(float(mean_squared_error(actual, predicted)), 4),
         "rmse": round(float(np.sqrt(mean_squared_error(actual, predicted))), 4),
-        "mape": round(float(np.mean(np.abs((actual[nonzero] - predicted[nonzero]) / actual[nonzero])) * 100), 4) if nonzero.any() else None,
+        "error_porcentual": round(error_percentage, 4) if error_percentage is not None else None,
+        "porcentaje_prediccion": round(max(0.0, 100.0 - error_percentage), 2) if error_percentage is not None else None,
         "r2": round(float(r2_score(actual, predicted)), 4) if len(actual) > 1 else None,
         "n": int(len(actual)),
     }

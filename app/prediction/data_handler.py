@@ -59,8 +59,10 @@ def load_from_database(db: Session, start: date | None = None, end: date | None 
             DetalleVenta.cantidad, DetalleVenta.precio_unitario, DetalleVenta.subtotal,
             Categoria.nombre.label("categoria"), Empresa.ciudad,
         )
-        .join(DetalleVenta, DetalleVenta.compra_id == Compra.compra_id)
-        .join(Producto, Producto.producto_id == DetalleVenta.producto_id)
+        # Revenue belongs to the purchase row. Keep paid purchases even when their item
+        # details/products are missing; otherwise the graph and training silently lose sales.
+        .outerjoin(DetalleVenta, DetalleVenta.compra_id == Compra.compra_id)
+        .outerjoin(Producto, Producto.producto_id == DetalleVenta.producto_id)
         .outerjoin(Categoria, Categoria.categoria_id == Producto.categoria_id)
         .outerjoin(Usuario, Usuario.usuario_id == Compra.usuario_id)
         .outerjoin(Empresa, Empresa.empresa_id == Usuario.empresa_id)
@@ -81,14 +83,16 @@ def load_from_database(db: Session, start: date | None = None, end: date | None 
         dated = purchase["fecha"].iloc[0]
         if pd.isna(dated):
             continue
-        category_totals = purchase.assign(categoria=purchase["categoria"].fillna("Sin_categoria")).groupby("categoria")["subtotal"].sum()
+        has_product_details = bool(purchase["producto_id"].notna().any())
+        category_totals = purchase.assign(categoria=purchase["categoria"].fillna("Sin_categoria")).groupby("categoria")["subtotal"].sum(min_count=1)
         prices = purchase["precio_detalle"].dropna()
         records.append({
             "venta_total": float(purchase["total"].iloc[0]),
             "anno": int(dated.year),
             "mes": int(dated.month),
             "dia_semana": DAYS[int(dated.day_of_week)],
-            "categoria_principal": str(category_totals.idxmax()) if not category_totals.empty else "Sin_categoria",
+            "categoria_principal": (str(category_totals.idxmax()) if has_product_details and not category_totals.dropna().empty
+                                    else "Sin_detalle"),
             "ciudad_cliente": normalize_city(purchase["ciudad"].iloc[0]),
             "cantidad_productos": int(purchase["producto_id"].nunique()),
             "total_unidades": int(purchase["cantidad"].fillna(0).sum()),
@@ -98,32 +102,23 @@ def load_from_database(db: Session, start: date | None = None, end: date | None 
 
 
 def load_dataset(db: Session | None = None, today: date | None = None) -> pd.DataFrame:
-    """Prefer live MySQL/PostgreSQL sales; fall back to the bundled CSV on failure or no rows."""
+    """Load the configured source; a database error must not silently train on the demo CSV."""
     source = settings.prediction_data_source.strip().lower()
     if source == "csv":
         return load_from_csv()
     if source not in {"db", "database", "mysql", "postgresql"}:
         raise ValueError("PREDICTION_DATA_SOURCE debe ser database o csv")
 
-    if db is not None:
-        try:
-            database_data = load_from_database(db, end=today)
-            if not database_data.empty:
-                return database_data
-            logger.warning("MySQL no devolvió ventas; se usará el CSV de respaldo")
-        except Exception:
-            logger.warning("No se pudieron leer ventas de MySQL; se usará el CSV de respaldo", exc_info=True)
-    else:
-        logger.warning("No se recibió sesión de base de datos; se usará el CSV de respaldo")
-
+    if db is None:
+        raise ValueError("PREDICTION_DATA_SOURCE=database requiere una sesión de MySQL/PostgreSQL")
     try:
-        fallback_data = load_from_csv()
+        database_data = load_from_database(db, end=today)
     except Exception as exc:
-        logger.exception("No fue posible cargar ventas desde MySQL ni desde el CSV de respaldo")
-        raise ValueError("No fue posible obtener ventas de la base de datos y el CSV de respaldo tampoco pudo cargarse") from exc
-    if fallback_data.empty:
-        raise ValueError("La base de datos no devolvió ventas y el CSV de respaldo está vacío")
-    return fallback_data
+        logger.exception("No se pudieron leer ventas de la base de datos configurada")
+        raise ValueError("No se pudo leer la fuente de ventas configurada; revisa la conexión a MySQL") from exc
+    if database_data.empty:
+        raise ValueError("MySQL no devolvió compras pagadas válidas; no se usará el CSV de demostración")
+    return database_data
 
 
 def historical_dashboard_data(db: Session, today: date | None = None) -> dict:

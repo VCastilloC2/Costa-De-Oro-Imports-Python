@@ -1,7 +1,7 @@
 """API REST de predicciones de ventas (servicio de Machine Learning con TensorFlow).
 
 TensorFlow se ejecuta Ãºnicamente en este backend; los clientes (Flutter, Spring Boot, Node.js,
-Python, etc.) sÃ³lo envÃ­an y reciben JSON. Ver ``docs/API_PREDICCIONES.md``.
+Python, etc.) salen y reciben JSON.
 """
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
@@ -47,7 +47,8 @@ from app.schemas.prediction import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/predictions", tags=["Predicciones Analytics"])
+PREDICTION_TAG = "Predicción"
+router = APIRouter(prefix="/api/v1/predictions", tags=[PREDICTION_TAG])
 
 
 @router.post(
@@ -85,22 +86,25 @@ def predict_demand(
     try:
         validation = evaluate(dataset, today.year)
     except Exception:
-        logger.exception("No se pudo calcular la validaciÃ³n del modelo")
+        logger.exception("No se pudo calcular la validacion del modelo")
         validation = None
     def finite(value):
         number = float(value) if value is not None else None
         return number if number is not None and math.isfinite(number) else None
 
-    mape = finite(validation.get("mape")) if validation else None
-    confidence = round(max(0.0, min(100.0, 100.0 - float(mape))), 2) if mape is not None else 0.0
+    error_percentage = finite(validation.get("error_porcentual")) if validation else None
+    confidence = finite(validation.get("porcentaje_prediccion")) if validation else None
+    confidence = round(max(0.0, min(100.0, confidence)), 2) if confidence is not None else 0.0
     # Keep the required numeric field meaningful when no holdout exists; the
     # confidence_basis tells consumers this is an unavailable validation.
-    error_margin = round(max(0.0, float(mape)), 2) if mape is not None else 100.0
+    error_margin = round(max(0.0, error_percentage), 2) if error_percentage is not None else 100.0
     metrics = DemandPredictionMetrics(
         validation_year=validation.get("anio_prueba") if validation else None,
         mean_absolute_error=finite(validation.get("mae")) if validation else None,
+        mean_squared_error=finite(validation.get("mse")) if validation else None,
         root_mean_squared_error=finite(validation.get("rmse")) if validation else None,
-        mape_percentage=mape,
+        error_percentage=error_percentage,
+        prediction_accuracy_percentage=confidence if validation else None,
         r_squared=finite(validation.get("r2")) if validation else None,
         sample_count=int(validation.get("n", 0)) if validation else 0,
     )
@@ -125,7 +129,7 @@ def predict_demand(
         ],
         target_period=f"{year:04d}-{month:02d}",
         confidence_basis=(
-            "Indicador orientativo calculado como 100 - MAPE; "
+            "Precisión calculada como max(0, 100 - WMAPE); "
             f"validaciÃ³n temporal sobre {metrics.sample_count} observaciones"
             if validation
             else "Sin suficientes aÃ±os histÃ³ricos para validar fuera de muestra; confianza no estimable"
@@ -138,8 +142,8 @@ def predict_demand(
 # =============================================================================
 # Servicio ML reutilizable (TensorFlow) — /api/v1/predictions/...
 # =============================================================================
-ML_TAG = "Predicciones ML (TensorFlow)"
-ADMIN_TAG = "Predicciones ML · Administración"
+ML_TAG = PREDICTION_TAG
+ADMIN_TAG = PREDICTION_TAG
 READ = Depends(prediction_access(SCOPE_READ))
 GENERATE = Depends(prediction_access(SCOPE_GENERATE))
 ADMIN_ONLY = Depends(prediction_access(SCOPE_READ, admin_only=True))

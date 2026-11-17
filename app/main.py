@@ -39,6 +39,14 @@ app = FastAPI(
         "cliente HTTP/JSON (Flutter, Spring Boot, Node.js, Python...) con `Authorization: Bearer <JWT>` "
         "o `X-API-Key`. Guía de integración: `docs/API_PREDICCIONES.md`."
     ),
+    openapi_tags=[{
+        "name": "Predicción",
+        "description": (
+            "Módulo unificado de predicción de ventas: pronóstico mensual, inferencia, "
+            "entrenamiento TensorFlow, métricas, historial y endpoints de integración. "
+            "Los endpoints conservan funciones y permisos distintos, pero se documentan juntos."
+        ),
+    }],
     docs_url="/doc" if settings.springdoc_swagger_ui_enabled else None,
     openapi_url="/v3/api-docs" if settings.springdoc_api_docs_enabled else None,
     redoc_url="/redoc",

@@ -18,8 +18,10 @@ class DemandPredictionRequest(BaseModel):
 class DemandPredictionMetrics(BaseModel):
     validation_year: int | None = None
     mean_absolute_error: float | None = None
+    mean_squared_error: float | None = None
     root_mean_squared_error: float | None = None
-    mape_percentage: float | None = None
+    error_percentage: float | None = None
+    prediction_accuracy_percentage: float | None = None
     r_squared: float | None = None
     sample_count: int = 0
 

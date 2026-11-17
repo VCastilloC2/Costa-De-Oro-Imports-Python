@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     prediction_allowed_roles: str = Field("ADMIN", validation_alias=AliasChoices("PREDICTION_ALLOWED_ROLES"))
     prediction_access_log_enabled: bool = Field(True, validation_alias=AliasChoices("PREDICTION_ACCESS_LOG_ENABLED"))
     # Cuánto se reutiliza una predicción ya calculada para Spring (/api/prediccion/*): entrenar es caro.
-    prediction_cache_ttl_seconds: int = Field(3600, ge=10, le=86400, validation_alias=AliasChoices("PREDICTION_CACHE_TTL_SECONDS"))
+    prediction_cache_ttl_seconds: int = Field(300, ge=10, le=86400, validation_alias=AliasChoices("PREDICTION_CACHE_TTL_SECONDS"))
     # --- Passkeys (WebAuthn / FIDO2) ---
     # Vacío = passkeys desactivadas (los endpoints responden 503), igual que PASSKEY_RP_ID en Flutter.
     passkey_rp_id: str = Field("", validation_alias=AliasChoices("PASSKEY_RP_ID"))
