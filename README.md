@@ -10,6 +10,10 @@ Copy-Item .env.example .env
 # Completa DB_URL, DB_USERNAME, DB_PASSWORD y secretos de proveedores
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+Con `PREDICTION_TRAIN_BEFORE_STARTUP=true`, el primer arranque espera a que FastAPI entrene el modelo
+mensual con MySQL (hasta 500 épocas, con parada temprana). En arranques posteriores lo reutiliza si la
+serie de ventas y la arquitectura siguen iguales; si cambian las ventas, vuelve a entrenar antes de
+entregar el pronóstico. Asegúrate de crear primero las tablas ML descritas en `docs/API_PREDICCIONES.md`.
 Docs: `/docs`; OpenAPI JSON: `/openapi.json`; alternativa ReDoc: `/redoc`.
 
 ## MySQL existente

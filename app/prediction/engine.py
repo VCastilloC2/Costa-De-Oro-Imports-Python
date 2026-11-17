@@ -111,6 +111,17 @@ def _forecast_with_trained_tensorflow(db: Session, today: date, years: int, fore
             "El modelo TensorFlow activo no coincide con las ventas pagadas actuales de MySQL; "
             "se usa el pronóstico estadístico actualizado hasta reentrenar con data_source=database"
         )
+    neural_metrics = loaded.metadata.get("metricas_preliminares") or {}
+    neural_wmape = neural_metrics.get("wape_percentage")
+    benchmark = backtest(pd.Series(history[TARGET].to_numpy(dtype=float), index=history["periodo"]))
+    benchmark_wmape = benchmark.get("wape") if benchmark else None
+    if (neural_wmape is not None and benchmark_wmape is not None
+            and float(neural_wmape) >= float(benchmark_wmape)):
+        raise ModelNotTrainedError(
+            f"La versión TensorFlow v{version} obtuvo WMAPE {float(neural_wmape):.1f} % en prueba, "
+            f"por encima del backtest estadístico ({float(benchmark_wmape):.1f} %); "
+            "se conserva el método con menor error para este pronóstico"
+        )
     origin = pd.Period(loaded.metadata["origen_serie"], freq=cfg.period_freq)
     features = build_features(history, cfg, origin)
     ready = features.iloc[cfg.warmup:]
@@ -150,7 +161,7 @@ def _forecast_with_trained_tensorflow(db: Session, today: date, years: int, fore
         series.append({"fecha": period.strftime("%Y-%m"), "tipo": kind,
                        "real": actual, "prediccion": predicted})
 
-    metrics = loaded.metadata.get("metricas_preliminares") or {}
+    metrics = neural_metrics
     comparisons = metrics.get("comparacion") or []
     return {
         "anios": years,
@@ -300,6 +311,62 @@ def forecast_month(db: Session, year: int, month: int, today: date | None = None
         value = (float(np.resize(history.iloc[-12:].to_numpy(dtype=float), horizon)[-1])
                  if use_seasonal_baseline else float(model.forecast(horizon)[-1]))
     return {"anno": year, "mes": month, "prediccion": round(value, 2)}
+
+
+def evaluate_recent_months(db: Session, months: int = 5,
+                           today: date | None = None) -> dict:
+    """Walk-forward comparison for the last closed calendar months, without target leakage."""
+    if not 1 <= months <= 12:
+        raise ValueError("meses debe estar entre 1 y 12")
+    today = today or date.today()
+    data = _monthly_paid_sales(db, today)
+    last_closed = pd.Period(year=today.year, month=today.month, freq="M") - 1
+    all_months = monthly_totals(data, last_closed)
+    if len(all_months) < 13:
+        raise ValueError("Se requieren al menos 13 meses cerrados para comparar predicciones recientes")
+
+    first_test = max(12, len(all_months) - months)
+    rows = []
+    for position in range(first_test, len(all_months)):
+        target = all_months.index[position]
+        training = all_months.iloc[:position]
+        validation = backtest(training)
+        selected_model = (validation or {}).get("modelo_elegido", METHOD_NAME)
+        prior_year = target - 12
+        if selected_model.startswith("naive_estacional") and prior_year in training.index:
+            predicted = float(training.loc[prior_year])
+        else:
+            predicted = float(fit_holt_winters(training).forecast(1)[0])
+        actual = float(all_months.iloc[position])
+        absolute_error = abs(actual - predicted)
+        rows.append({
+            "fecha": str(target),
+            "valor_real": round(actual, 2),
+            "valor_predicho": round(max(predicted, 0.0), 2),
+            "error_absoluto": round(absolute_error, 2),
+            "error_porcentual": round(absolute_error / actual * 100.0, 2) if actual > 0 else None,
+            "modelo": selected_model,
+            "meses_entrenamiento": len(training),
+        })
+
+    actual_values = np.asarray([row["valor_real"] for row in rows], dtype=float)
+    predicted_values = np.asarray([row["valor_predicho"] for row in rows], dtype=float)
+    total_real = float(np.abs(actual_values).sum())
+    absolute_errors = np.abs(actual_values - predicted_values)
+    wmape = float(absolute_errors.sum() / total_real * 100.0) if total_real > 0 else None
+    return {
+        "meses_solicitados": months,
+        "meses_evaluados": len(rows),
+        "desde": rows[0]["fecha"],
+        "hasta": rows[-1]["fecha"],
+        "comparacion": rows,
+        "metricas": {
+            "mae": round(float(absolute_errors.mean()), 2),
+            "mse": round(float(np.mean((actual_values - predicted_values) ** 2)), 2),
+            "wmape": round(wmape, 2) if wmape is not None else None,
+        },
+        "fuente_datos": "database",
+    }
 
 
 def predict_month_from_data(data: pd.DataFrame, year: int, month: int) -> dict:

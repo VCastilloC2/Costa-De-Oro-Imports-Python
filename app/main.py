@@ -1,5 +1,6 @@
 """Costa De Oro Imports FastAPI application."""
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -19,8 +20,9 @@ from app.api.v1.endpoints.spring_integration import router as spring_integration
 from app.api.v1.endpoints.dashboard_integration import router as dashboard_integration_router
 from app.core.config import settings
 from app.core.cache import cache_health
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.models import Producto, Usuario
+from app.prediction.training_service import training_service
 from app.schemas import ProductResponse, UserResponse
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,17 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if (settings.prediction_train_before_startup
+            and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
+        await asyncio.to_thread(_train_monthly_model_before_startup)
     yield
+
+
+def _train_monthly_model_before_startup() -> None:
+    """Block API startup until a monthly TensorFlow model matches the current MySQL history."""
+    with SessionLocal() as db:
+        result = training_service.ensure_monthly_model_current(db)
+    logger.info("Modelo mensual listo antes del arranque: %s", result)
 
 app = FastAPI(
     title=settings.app_name,

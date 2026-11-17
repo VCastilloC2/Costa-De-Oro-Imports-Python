@@ -24,9 +24,10 @@ from app.api.deps import prediction_access
 from app.core.cache import cache_get_json, cache_set_json
 from app.core.config import settings
 from app.core.database import get_db
-from app.prediction.engine import forecast_month, generate_forecast
+from app.prediction.engine import evaluate_recent_months, forecast_month, generate_forecast
 from app.prediction.artifacts import model_store
 from app.prediction.repository import SCOPE_GENERATE, SCOPE_READ
+from app.prediction.training_service import training_service
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,10 @@ def datos_grafica(
     logger.info("spring datos-grafica anios=%s proyeccion=%s by=%s requestId=%s",
                 anios, proyeccion_meses, principal["name"], _request_id(request))
     try:
+        if (settings.prediction_train_before_startup
+                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
+            # Revisa la firma actual: solo entrena si MySQL cambió desde la versión activa.
+            training_service.ensure_monthly_model_current(db)
         # Sales change as purchases are paid. Always read the current MySQL aggregates here;
         # a long-lived Valkey/in-process forecast cache made the dashboard look stale.
         # Este endpoint alimenta el dashboard de ventas: debe reflejar MySQL en cada llamada,
@@ -143,6 +148,21 @@ def datos_grafica(
         raise HTTPException(422, str(exc)) from exc
 
 
+@router.get("/evaluar-ultimos-meses", summary="Compara predicciones rodantes con los últimos meses reales")
+def evaluar_ultimos_meses(
+    request: Request,
+    principal: Annotated[dict, Depends(prediction_access(SCOPE_READ))],
+    db: Annotated[Session, Depends(get_db)],
+    meses: Annotated[int, Query(ge=1, le=12)] = 5,
+) -> dict:
+    logger.info("spring evaluar-ultimos-meses meses=%s by=%s requestId=%s",
+                meses, principal["name"], _request_id(request))
+    try:
+        return evaluate_recent_months(db, meses)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("/generar", response_model=RespuestaPrediccion, summary="Venta prevista para un mes")
 def generar(
     payload: SolicitudPrediccion,
@@ -153,8 +173,13 @@ def generar(
     logger.info("spring generar anno=%s mes=%s by=%s requestId=%s",
                 payload.anno, payload.mes, principal["name"], _request_id(request))
     try:
+        model_version = "statistics"
+        if (settings.prediction_train_before_startup
+                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
+            model_state = training_service.ensure_monthly_model_current(db)
+            model_version = model_state.get("model_version", "current")
         result = cached_prediction(
-            f"spring:prediccion:mes:v4:{payload.anno}:{payload.mes}",
+            f"spring:prediccion:mes:v5:{model_version}:{payload.anno}:{payload.mes}",
             lambda: forecast_month(db, payload.anno, payload.mes),
         )
     except ValueError as exc:

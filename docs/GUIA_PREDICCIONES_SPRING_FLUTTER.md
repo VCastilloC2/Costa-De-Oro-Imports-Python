@@ -20,6 +20,8 @@ Swagger presenta todas las operaciones bajo una única etiqueta **Predicción**.
 
 - **Spring para web/Flutter:** `GET /api/v1/predicciones/ventas?meses=12` (meses entre 0 y 24; requiere usuario autenticado). Responde con `serie`, `metricas`, `historial_entrenamiento`, `variables_utilizadas` y `herramientas`.
 - **FastAPI detrás del proxy:** `GET /api/prediccion/datos-grafica?anios=6&proyeccion_meses=12` con `X-API-Key` de lectura.
+- **Evaluar el modelo con los últimos meses cerrados:** `GET /api/prediccion/evaluar-ultimos-meses?meses=5`. FastAPI hace una validación temporal rodante: para cada mes, ajusta con los meses anteriores y devuelve `comparacion` con `valor_real`, `valor_predicho` y `error_absoluto`, más MAE/MSE/WMAPE agregados. No incluye el mes actual incompleto.
+- **Proxy Spring para web/Flutter:** `GET /api/v1/predicciones/ventas/evaluacion?meses=5`. Usa la sesión del usuario de Spring; Spring consulta FastAPI con la API key interna.
 - **Entrenar modelo versionado con ventas MySQL actuales:** `POST /api/v1/predictions/model/train` con `{"granularity":"monthly","data_source":"database","wait":true}`. Requiere permiso de administración; la respuesta debe confirmar `preparation.fuente_datos = database`.
 - **Consultar estado y épocas mientras entrena:** `GET /api/v1/predictions/model/train/status`.
 - **Consultar métricas y curva ya guardadas:** `GET /api/v1/predictions/model/metrics?granularity=monthly`.

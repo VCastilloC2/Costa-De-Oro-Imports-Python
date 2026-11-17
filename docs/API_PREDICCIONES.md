@@ -38,7 +38,7 @@ red neuronal.
 |---|---|---|
 | 1. Preparación y validación | `app/prediction/preparation.py` | Extracción MySQL, limpieza, nulos, duplicados, atípicos (IQR con límites de entrenamiento), agrupación por período, variables temporales y rezagadas, partición cronológica 70/15/15, validación y resumen |
 | 2. Transformación | `app/prediction/transformation.py` | Matrices X/Y float32, `StandardScaler` ajustado sólo con entrenamiento, orden de variables persistido, transformación idéntica en predicción |
-| 3. Modelado | `app/prediction/tf_model.py` | Entrada → Dense(16, ReLU) → Dense(8, ReLU) → Dense(1, Linear); Adam, MSE, MAE, EarlyStopping |
+| 3. Modelado | `app/prediction/tf_model.py` | Entrada → Dense(32,16,8,4, ReLU) → salida Dense(1, Linear); L2 + Dropout, Adam, MSE, MAE, EarlyStopping |
 | 4. Entrenamiento | `app/prediction/training_service.py` | Operación independiente, sólo ADMIN, un entrenamiento a la vez, registro de épocas/pérdidas/versión/fecha |
 | 5. Métricas preliminares | `app/prediction/evaluation.py` | MAE, MSE, RMSE y WMAPE sobre el conjunto de prueba; la precisión se deriva de WMAPE para tolerar meses con cero ventas |
 | 6. Integración | `app/prediction/prediction_service.py` | Carga modelo + scaler, valida, transforma, ejecuta TensorFlow, variación %, métricas, historial |
@@ -72,11 +72,19 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
    o bien `python -m app.prediction.scripts_pred --create-ml-tables`.
 2. Configura en `.env` (ver `.env.example`): `PREDICTION_MODEL_DIR`, `PREDICTION_ALLOWED_ROLES`,
    `PREDICTION_MAX_CONCURRENT`, `PREDICTION_INFERENCE_TIMEOUT_SECONDS`, `PREDICTION_DEDUP_WINDOW_SECONDS`.
-3. Entrena con los datos actuales de MySQL (ADMIN): `POST /api/v1/predictions/model/train` con
-   `{"granularity":"monthly","data_source":"database","wait":true}`. `database` evita usar el CSV
-   de respaldo si falla la conexión. Comprueba en la respuesta `preparation.fuente_datos` y
-   `fin_historia`; deben indicar `database` y el último mes realmente cargado.
-4. Genera predicciones: `POST /api/v1/predictions/generate`.
+3. Con `PREDICTION_TRAIN_BEFORE_STARTUP=true` (predeterminado), FastAPI verifica el historial MySQL
+   antes de aceptar solicitudes. Si falta el modelo, cambió la serie o el artefacto usa otra arquitectura,
+   crea una versión nueva con hasta 500 épocas y EarlyStopping; el proceso de arranque espera a que termine.
+   El endpoint del gráfico repite la verificación y reentrena sólo si la firma de MySQL cambió. Con datos
+   iguales reutiliza el modelo activo. Las tablas ML deben existir antes del primer arranque.
+4. También se puede iniciar un entrenamiento explícito como ADMIN con `POST /api/v1/predictions/model/train`
+   y `{"granularity":"monthly","data_source":"database","epochs":500,"patience":60,"wait":true}`.
+   `database` evita usar el CSV de respaldo. Comprueba `preparation.fuente_datos` y `fin_historia`.
+5. Genera predicciones: `POST /api/v1/predictions/generate`.
+
+500 es el máximo, no una obligación de ejecutar todas las épocas: EarlyStopping restaura los mejores pesos
+cuando la pérdida de validación deja de mejorar. Volver a entrenar en cada consulta sin cambios en MySQL
+añadiría latencia y riesgo de sobreajuste; la firma de la serie evita esos entrenamientos repetidos.
 
 > **Despliegues serverless (Vercel):** el sistema de archivos es efímero y los hilos de fondo no
 > sobreviven a la respuesta. Usa `"wait": true` al entrenar y apunta `PREDICTION_MODEL_DIR` a un

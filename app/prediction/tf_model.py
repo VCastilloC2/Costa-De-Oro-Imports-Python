@@ -1,8 +1,9 @@
 """FASE 3 — Modelado con TensorFlow / Keras.
 
 Arquitectura de referencia:
-    Entrada (n variables) -> Dense(16, ReLU) -> Dense(8, ReLU) -> Dense(1, Linear)
-Optimizer Adam, pérdida MSE, métrica MAE, EarlyStopping sobre la pérdida de validación.
+    Entrada (n variables) -> Dense(32,16,8,4, ReLU) -> Dense(1, Linear)
+    con regularización L2 y Dropout; Adam, pérdida MSE, métrica MAE,
+    EarlyStopping sobre la pérdida de validación.
 TensorFlow se importa de forma diferida para no penalizar el arranque de las rutas no predictivas.
 """
 from __future__ import annotations
@@ -13,8 +14,11 @@ from typing import Callable
 MODEL_NAME = "TensorFlow Sales Prediction"
 ARCHITECTURE = [
     {"capa": "entrada", "unidades": "n_variables", "activacion": None},
-    {"capa": "oculta_1", "unidades": 16, "activacion": "relu"},
-    {"capa": "oculta_2", "unidades": 8, "activacion": "relu"},
+    {"capa": "oculta_1", "unidades": 32, "activacion": "relu", "regularizacion_l2": 0.0001},
+    {"capa": "dropout_1", "tasa": 0.10},
+    {"capa": "oculta_2", "unidades": 16, "activacion": "relu", "regularizacion_l2": 0.0001},
+    {"capa": "oculta_3", "unidades": 8, "activacion": "relu", "regularizacion_l2": 0.0001},
+    {"capa": "oculta_4", "unidades": 4, "activacion": "relu", "regularizacion_l2": 0.0001},
     {"capa": "salida", "unidades": 1, "activacion": "linear"},
 ]
 DEFAULT_SEED = 41
@@ -43,11 +47,11 @@ def tensorflow_version() -> str | None:
 
 @dataclass
 class TrainingConfig:
-    epochs: int = 300
+    epochs: int = 500
     batch_size: int = 16
     learning_rate: float = 0.001
-    patience: int = 25
-    start_from_epoch: int = 20
+    patience: int = 60
+    start_from_epoch: int = 40
     seed: int = DEFAULT_SEED
 
 
@@ -56,8 +60,11 @@ def build_sales_network(n_features: int, learning_rate: float = 0.001, seed: int
     tf.keras.utils.set_random_seed(seed)
     model = tf.keras.Sequential(name="costa_de_oro_sales_mlp", layers=[
         tf.keras.layers.Input(shape=(n_features,), name="entrada"),
-        tf.keras.layers.Dense(16, activation="relu", name="oculta_1"),
-        tf.keras.layers.Dense(8, activation="relu", name="oculta_2"),
+        tf.keras.layers.Dense(32, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(1e-4), name="oculta_1"),
+        tf.keras.layers.Dropout(0.10, name="dropout_1"),
+        tf.keras.layers.Dense(16, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(1e-4), name="oculta_2"),
+        tf.keras.layers.Dense(8, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(1e-4), name="oculta_3"),
+        tf.keras.layers.Dense(4, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(1e-4), name="oculta_4"),
         tf.keras.layers.Dense(1, activation="linear", name="salida"),
     ])
     model.compile(

@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
     app_name: str = Field("Costa De Oro Imports API", validation_alias=AliasChoices("NombreAplicacion", "APP_NAME"))
     port: int = Field(8080, validation_alias=AliasChoices("PORT", "PuertoServidor"))
-    db_url: str = Field("mysql+pymysql://localhost:3306/db_beer", validation_alias=AliasChoices("DATABASE_URL", "DB_URL", "SPRING_DATASOURCE_URL"))
+    db_url: str = Field("mysql+pymysql://jdbc:mysql://localhost:3306/db_beer?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC", validation_alias=AliasChoices("DATABASE_URL", "DB_URL", "SPRING_DATASOURCE_URL"))
     db_username: str = Field("", validation_alias=AliasChoices("DB_USERNAME", "SPRING_DATASOURCE_USERNAME"))
     db_password: str = Field("", validation_alias=AliasChoices("DB_PASSWORD", "SPRING_DATASOURCE_PASSWORD"))
     valkey_url: str | None = Field(default=None, validation_alias=AliasChoices("VALKEY_URL", "REDIS_URL"))

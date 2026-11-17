@@ -94,8 +94,22 @@ class ModelStore:
         transformer.save(staging / "scaler.joblib")
         _write_json(staging / "metadata.json", metadata)
         if target.exists():
-            shutil.rmtree(target)
-        os.replace(staging, target)
+            raise FileExistsError(f"La versión destino ya existe; no se sobrescribirá: {target}")
+        try:
+            os.replace(staging, target)
+        except PermissionError:
+            # Windows may deny renaming a directory while antivirus/indexing holds a handle.
+            # Copy the artifacts with metadata last; the version is invisible to `versions()`
+            # until that final metadata file is present, and activation follows this block.
+            target.mkdir(parents=True, exist_ok=False)
+            try:
+                shutil.copy2(staging / "model.keras", target / "model.keras")
+                shutil.copy2(staging / "scaler.joblib", target / "scaler.joblib")
+                shutil.copy2(staging / "metadata.json", target / "metadata.json")
+            except Exception:
+                shutil.rmtree(target, ignore_errors=True)
+                raise
+            shutil.rmtree(staging, ignore_errors=True)
         if activate:
             self.activate(granularity, version)
         return target

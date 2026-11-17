@@ -27,6 +27,8 @@ def main() -> None:
     parser.add_argument("--train-tf", action="store_true", help="Entrena una nueva versión del modelo TensorFlow")
     parser.add_argument("--granularity", choices=["daily", "weekly", "monthly"], default="monthly")
     parser.add_argument("--data-source", choices=["auto", "database", "csv"], default="auto")
+    parser.add_argument("--epochs", type=int, default=500, help="Épocas máximas (EarlyStopping puede detener antes)")
+    parser.add_argument("--patience", type=int, default=60, help="Épocas sin mejora antes de EarlyStopping")
     args = parser.parse_args()
     if args.generate_key:
         print(secrets.token_urlsafe(48))
@@ -52,7 +54,8 @@ def main() -> None:
         if args.train_tf:
             from app.prediction.training_service import TrainingParams, training_service
             state = training_service.start(
-                db, TrainingParams(granularity=args.granularity, data_source=args.data_source),
+                db, TrainingParams(granularity=args.granularity, data_source=args.data_source,
+                                   epochs=args.epochs, patience=args.patience),
                 {"user_id": None, "name": "cli"}, wait=True)
             state.pop("epochs", None)
             print(json.dumps(state, ensure_ascii=False, indent=2, default=str))

@@ -345,7 +345,7 @@ def model_versions(_: Principal, granularity: GranularityLiteral = Query("monthl
                422: _err("Datos insuficientes o inválidos (incluye el resumen de preparación en error.details)")},
     summary="Entrenar una nueva versión del modelo TensorFlow",
     description="Ejecuta las fases 1-5: extracción desde MySQL, limpieza, variables temporales y rezagadas, "
-                "partición cronológica (70/15/15), StandardScaler, red Keras 16-8-1 con EarlyStopping, "
+                "partición cronológica (70/15/15), StandardScaler, red Keras 32-16-8-4-1 con regularización y EarlyStopping, "
                 "métricas preliminares y guardado del modelo y del scaler como nueva versión activa. "
                 "Por defecto responde **202** y entrena en segundo plano; consulta el avance con "
                 "`GET /model/train/status`. Sólo se permite un entrenamiento simultáneo." + ADMIN_DOC,

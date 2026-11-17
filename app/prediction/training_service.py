@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -41,10 +42,10 @@ class TrainingInProgressError(RuntimeError):
 class TrainingParams:
     granularity: str = "monthly"
     data_source: str = "auto"
-    epochs: int = 300
+    epochs: int = 500
     batch_size: int = 16
     learning_rate: float = 0.001
-    patience: int = 25
+    patience: int = 60
 
 
 def _iso(value) -> str | None:
@@ -67,6 +68,47 @@ class TrainingService:
     def is_running(self) -> bool:
         with self._lock:
             return self._state.get("status") in {"queued", "running"}
+
+    def ensure_monthly_model_current(self, db: Session) -> dict:
+        """Train a 500-epoch-maximum version before serving when MySQL history has changed."""
+        extraction = load_transactions(db, "database")
+        prepared = prepare_sales_data(extraction, "monthly")
+        signature = history_signature(prepared.series)
+
+        def active_matches() -> int | None:
+            version = self.store.active_version("monthly")
+            if not version:
+                return None
+            try:
+                metadata = self.store.read_metadata("monthly", version)
+            except Exception:
+                return None
+            return version if (metadata.get("firma_serie") == signature
+                               and metadata.get("arquitectura") == ARCHITECTURE) else None
+
+        current_version = active_matches()
+        if current_version:
+            return {"status": "current", "model_version": current_version,
+                    "periods": len(prepared.series), "firma_serie": signature}
+
+        params = TrainingParams(granularity="monthly", data_source="database", epochs=500, patience=60)
+        deadline = time.monotonic() + min(3600, max(60, params.epochs * 2))
+        while True:
+            current_version = active_matches()
+            if current_version:
+                return {"status": "current", "model_version": current_version,
+                        "periods": len(prepared.series), "firma_serie": signature}
+            try:
+                state = self.start(db, params, {"user_id": None, "name": "startup_auto"}, wait=True)
+            except TrainingInProgressError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Se agotó el tiempo esperando el entrenamiento mensual en curso")
+                time.sleep(1)
+                continue
+            if state.get("status") != "completed":
+                raise RuntimeError(state.get("error") or "No se pudo entrenar el modelo mensual antes del arranque")
+            return {"status": "trained", **(state.get("result") or {}),
+                    "periods": len(prepared.series), "firma_serie": signature}
 
     def _update(self, **fields) -> None:
         with self._lock:

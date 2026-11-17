@@ -14,6 +14,7 @@ from app.core.security import hash_password
 from app.models import Rol, Usuario
 from app.prediction.data_handler import historical_dashboard_data
 from app.prediction.engine import generate_forecast
+from app.prediction.training_service import training_service
 from app.schemas import AdminCreateRequest, ForecastRequest
 from app.api.v1.endpoints.admin_extra import router as legacy_admin_router
 from app.api.v1.endpoints.admin_graficas import router as admin_graficas_router
@@ -96,12 +97,18 @@ def prediction_status():
 @router.get("/admin/prediccion/datos-grafica", tags=["Predicción"], dependencies=[Depends(admin_user)])
 def prediction_dashboard(db: Session = Depends(get_db)):
     cache_key = "dashboard:prediction:v2"
-    cached = cache_get_json(cache_key)
-    if cached is not None:
-        return cached
+    auto_refresh = (settings.prediction_train_before_startup
+                    and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"})
+    if not auto_refresh:
+        cached = cache_get_json(cache_key)
+        if cached is not None:
+            return cached
     try:
         result = historical_dashboard_data(db)
         if result["cantidad_compras"]:
+            if (settings.prediction_train_before_startup
+                    and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
+                training_service.ensure_monthly_model_current(db)
             result["proyeccion_ventas"] = generate_forecast(db, years=6, forecast_months=12)["serie"]
         else:
             result["proyeccion_ventas"] = []
@@ -111,7 +118,8 @@ def prediction_dashboard(db: Session = Depends(get_db)):
             "total_ventas": 0.0, "cantidad_compras": 0, "proyeccion_ventas": [],
             "mensaje": str(exc),
         }
-    cache_set_json(cache_key, result, settings.valkey_cache_ttl_seconds)
+    if not auto_refresh:
+        cache_set_json(cache_key, result, settings.valkey_cache_ttl_seconds)
     return result
 
 
@@ -119,6 +127,9 @@ def prediction_dashboard(db: Session = Depends(get_db)):
 def generate_prediction(payload: ForecastRequest | None = None, db: Session = Depends(get_db)):
     request = payload or ForecastRequest()
     try:
+        if (settings.prediction_train_before_startup
+                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
+            training_service.ensure_monthly_model_current(db)
         return generate_forecast(db, years=request.anios, forecast_months=request.proyeccion_meses)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

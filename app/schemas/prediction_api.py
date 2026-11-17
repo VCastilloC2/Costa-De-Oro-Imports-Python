@@ -215,15 +215,15 @@ class ComparisonResult(BaseModel):
 
 class TrainRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [
-        {"granularity": "monthly", "epochs": 300, "batch_size": 16, "learning_rate": 0.001, "patience": 25},
+        {"granularity": "monthly", "epochs": 500, "batch_size": 16, "learning_rate": 0.001, "patience": 60},
         {"granularity": "daily", "data_source": "database", "wait": False},
     ]})
     granularity: GranularityLiteral = "monthly"
     data_source: DataSourceLiteral = "auto"
-    epochs: int = Field(300, ge=10, le=5000)
+    epochs: int = Field(500, ge=10, le=5000)
     batch_size: int = Field(16, ge=1, le=1024)
     learning_rate: float = Field(0.001, gt=0, le=1)
-    patience: int = Field(25, ge=1, le=500, description="Épocas sin mejora antes de EarlyStopping")
+    patience: int = Field(60, ge=1, le=500, description="Épocas sin mejora antes de EarlyStopping")
     wait: bool = Field(False, description=(
         "false: responde 202 y entrena en segundo plano · true: espera a que termine "
         "(útil en despliegues serverless sin hilos persistentes)"))
