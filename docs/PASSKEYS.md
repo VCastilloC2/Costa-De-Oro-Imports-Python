@@ -29,6 +29,8 @@ PASSKEY_RP_ID=costadeoroimports.com
 PASSKEY_RP_NAME=Costa de Oro Imports
 # iOS usa https://<dominio>; Android usa android:apk-key-hash:<sha256 del certificado en base64url>
 PASSKEY_EXPECTED_ORIGINS=https://costadeoroimports.com,android:apk-key-hash:XXXXXXXX
+PASSKEY_ANDROID_PACKAGE_NAME=com.example.costa_de_oro_imports
+PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS=AA:BB:CC:...:FF
 PASSKEY_CHALLENGE_TTL_SECONDS=300
 PASSKEY_CACHE_TTL_SECONDS=3600
 PASSKEY_SESSION_TTL_SECONDS=3600
@@ -42,6 +44,21 @@ VALKEY_URL=rediss://usuario:clave@host:6379
   ```
 - El dominio debe publicar `/.well-known/apple-app-site-association` y `/.well-known/assetlinks.json`
   (ver `docs/passkeys.md` del repositorio Flutter).
+- FastAPI genera `/.well-known/assetlinks.json` usando `PASSKEY_ANDROID_PACKAGE_NAME` y
+  `PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS`. Sirve el archivo directamente en HTTPS, con status
+  `200` y `Content-Type: application/json`.
+- Para la configuración local del proyecto Flutter, el `applicationId` es
+  `com.example.costa_de_oro_imports`; no uses el package name de otro proyecto. El `assetlinks.json`
+  necesita la huella SHA-256 del certificado que firmó el APK instalado. Añade todas las huellas
+  separadas por coma si debug y release usan certificados diferentes.
+- El plugin de Flutter busca `https://<PASSKEY_RP_ID>/.well-known/assetlinks.json` en el puerto 443.
+  Si el API solo escucha en `:8000`, el diagnóstico Android no encuentra el archivo. Para esta
+  configuración local, inicia FastAPI por HTTPS en 443:
+  ```bash
+  uvicorn app.main:app --host 0.0.0.0 --port 443 --reload --ssl-certfile cert.pem --ssl-keyfile key.pem
+  ```
+  El certificado debe incluir la IP en SAN y ser confiable en el teléfono. La API y Swagger quedan
+  disponibles en `https://<IP>/` y `https://<IP>/doc`.
 
 ### Diagnóstico de `POST /auth/passkey/register/options`
 

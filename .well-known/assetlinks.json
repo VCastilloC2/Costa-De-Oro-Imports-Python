@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.get_login_creds",
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.example.costa_de_oro_imports",
+      "sha256_cert_fingerprints": [
+        "7D:23:A6:86:7C:AA:B5:73:C2:9D:E8:48:B9:C7:D8:CB:18:3F:7E:A5:A5:C0:1E:86:36:E9:B9:8F:D6:F5:19:4D"
+      ]
+    }
+  }
+]

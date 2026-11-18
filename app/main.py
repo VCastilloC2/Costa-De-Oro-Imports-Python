@@ -2,10 +2,11 @@
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+import re
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -73,6 +74,30 @@ app.add_middleware(
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/doc", status_code=307)
+
+
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+def android_assetlinks():
+    """Publica la asociación Android necesaria para compartir Passkeys con esta app."""
+    package_name = settings.passkey_android_package_name.strip()
+    fingerprints = [
+        value.strip().upper()
+        for value in settings.passkey_android_sha256_fingerprints.split(",")
+        if re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}", value.strip())
+    ]
+    if not package_name or not fingerprints:
+        raise HTTPException(503, "Asociación Android de Passkeys no configurada")
+    return JSONResponse(
+        content=[{
+            "relation": ["delegate_permission/common.get_login_creds"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": package_name,
+                "sha256_cert_fingerprints": fingerprints,
+            },
+        }],
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @app.get("/health", tags=["Sistema"])

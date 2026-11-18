@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     passkey_rp_name: str = Field("Costa de Oro Imports", validation_alias=AliasChoices("PASSKEY_RP_NAME"))
     # Orígenes aceptados en clientDataJSON: https://<rp_id> (iOS/web) y android:apk-key-hash:<hash> (Android).
     passkey_expected_origins: str = Field("", validation_alias=AliasChoices("PASSKEY_EXPECTED_ORIGINS"))
+    passkey_android_package_name: str = Field(
+        "", validation_alias=AliasChoices("PASSKEY_ANDROID_PACKAGE_NAME"))
+    passkey_android_sha256_fingerprints: str = Field(
+        "", validation_alias=AliasChoices("PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS"))
     passkey_challenge_ttl_seconds: int = Field(300, ge=30, le=900, validation_alias=AliasChoices("PASSKEY_CHALLENGE_TTL_SECONDS"))
     passkey_cache_ttl_seconds: int = Field(3600, ge=60, le=604800, validation_alias=AliasChoices("PASSKEY_CACHE_TTL_SECONDS"))
     passkey_session_ttl_seconds: int = Field(3600, ge=300, le=86400, validation_alias=AliasChoices("PASSKEY_SESSION_TTL_SECONDS"))

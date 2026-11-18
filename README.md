@@ -10,7 +10,7 @@ pip install -r requirements.txt
 python generar_cert.py
 Copy-Item .env.example .env
 # Completa DB_URL, DB_USERNAME, DB_PASSWORD y secretos de proveedores
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --ssl-certfile cert.pem --ssl-keyfile key.pem
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 Con `PREDICTION_TRAIN_BEFORE_STARTUP=true`, el primer arranque espera a que FastAPI entrene el modelo
 mensual con MySQL (hasta 500 épocas, con parada temprana). En arranques posteriores lo reutiliza si la
