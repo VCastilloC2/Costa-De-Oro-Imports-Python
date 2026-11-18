@@ -1,4 +1,3 @@
-"""Costa De Oro Imports FastAPI application."""
 from contextlib import asynccontextmanager
 import asyncio
 import logging
@@ -28,7 +27,6 @@ from app.schemas import ProductResponse, UserResponse
 
 logger = logging.getLogger(__name__)
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if (settings.prediction_train_before_startup
@@ -44,7 +42,7 @@ def _train_monthly_model_before_startup() -> None:
     logger.info("Modelo mensual listo antes del arranque: %s", result)
 
 app = FastAPI(
-    title=settings.app_name,
+    title="Costa De Oro Imports",
     version="4.0.0",
     description=(
         "API REST de Costa De Oro Imports. Operaciones administrativas protegidas por rol ADMIN.\n\n"
@@ -66,37 +64,60 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(
-    CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
 
 @app.get("/", include_in_schema=False)
 def root():
     return RedirectResponse(url="/doc", status_code=307)
 
 
-@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+
+@app.get(
+    "/.well-known/assetlinks.json",
+    include_in_schema=True,
+    tags=["Passkeys"]
+)
 def android_assetlinks():
-    """Publica la asociación Android necesaria para compartir Passkeys con esta app."""
+    """Publica la asociación Android necesaria para Passkeys."""
+
     package_name = settings.passkey_android_package_name.strip()
+
     fingerprints = [
         value.strip().upper()
         for value in settings.passkey_android_sha256_fingerprints.split(",")
-        if re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}", value.strip())
+        if re.fullmatch(
+            r"(?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}",
+            value.strip()
+        )
     ]
+
     if not package_name or not fingerprints:
-        raise HTTPException(503, "Asociación Android de Passkeys no configurada")
+        raise HTTPException(
+            status_code=503,
+            detail="Asociación Android de Passkeys no configurada"
+        )
+
     return JSONResponse(
-        content=[{
-            "relation": ["delegate_permission/common.get_login_creds"],
-            "target": {
-                "namespace": "android_app",
-                "package_name": package_name,
-                "sha256_cert_fingerprints": fingerprints,
-            },
-        }],
-        headers={"Cache-Control": "public, max-age=3600"},
+        content=[
+            {
+                "relation": [
+                    "delegate_permission/common.get_login_creds"
+                ],
+                "target": {
+                    "namespace": "android_app",
+                    "package_name": package_name,
+                    "sha256_cert_fingerprints": fingerprints,
+                },
+            }
+        ],
+        headers={
+            "Cache-Control": "public, max-age=3600"
+        },
     )
 
 
