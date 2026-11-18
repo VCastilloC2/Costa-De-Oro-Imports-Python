@@ -43,6 +43,19 @@ VALKEY_URL=rediss://usuario:clave@host:6379
 - El dominio debe publicar `/.well-known/apple-app-site-association` y `/.well-known/assetlinks.json`
   (ver `docs/passkeys.md` del repositorio Flutter).
 
+### Diagnóstico de `POST /auth/passkey/register/options`
+
+- Si falta `passkey_credencial`, aplica `app/sql/passkeys.sql` en la misma base MySQL que usa FastAPI.
+  El endpoint devuelve `503` con esta indicación en vez de un `500` sin contexto.
+- Si `PASSKEY_RP_ID` está vacío, el servidor devuelve `503`: usa el hostname del backend accesible por
+  HTTPS, sin esquema ni ruta. El `RP_ID` no se puede inferir de una IP local.
+- El dispositivo Android debe llegar al backend por HTTPS y su certificado de firma debe estar
+  publicado en `assetlinks.json`; agrega también `android:apk-key-hash:<hash-base64url>` a
+  `PASSKEY_EXPECTED_ORIGINS`. El package name y el SHA-256 de firma deben corresponder al APK
+  instalado (debug y release pueden tener certificados distintos).
+- El Flutter del proyecto debe usar ese mismo hostname como `PASSKEY_RP_ID` y su URL base HTTPS.
+  `http://192.168.x.x` sirve para llamadas API de desarrollo, pero no para WebAuthn Android.
+
 ## 2. Estrategia Valkey → MySQL
 
 | Dato | Escritura | Lectura | Clave Valkey | TTL |

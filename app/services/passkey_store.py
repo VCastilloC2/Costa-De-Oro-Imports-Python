@@ -142,8 +142,13 @@ class PasskeyStore:
         cached = cache.cache_get_json(user_key(usuario_id))
         if isinstance(cached, dict) and "credentials" in cached:
             return cached
-        rows = list(db.scalars(select(PasskeyCredencial).where(
-            PasskeyCredencial.usuario_id == usuario_id, PasskeyCredencial.activo.is_(True))))
+        try:
+            rows = list(db.scalars(select(PasskeyCredencial).where(
+                PasskeyCredencial.usuario_id == usuario_id, PasskeyCredencial.activo.is_(True))))
+        except SQLAlchemyError as exc:
+            db.rollback()
+            logger.exception("No se pudieron leer las passkeys; verifica que app/sql/passkeys.sql esté aplicado")
+            raise RuntimeError("Faltan las tablas de Passkeys. Ejecuta app/sql/passkeys.sql en la base de datos.") from exc
         info = {
             "user_handle": rows[0].user_handle if rows else None,
             "credentials": [{"credential_id": r.credential_id,

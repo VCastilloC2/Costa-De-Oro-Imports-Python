@@ -44,7 +44,9 @@ def _run(action: Callable):
     except PasskeyError as exc:
         raise HTTPException(exc.status_code, exc.message) from exc
     except RuntimeError as exc:
-        raise HTTPException(503, "Servicio de passkeys no disponible temporalmente") from exc
+        # RuntimeErrors del store contienen mensajes operativos seguros (por ejemplo,
+        # la migración SQL requerida); nunca exponemos el detalle de una excepción SQL.
+        raise HTTPException(503, str(exc) or "Servicio de passkeys no disponible temporalmente") from exc
 
 
 def _ip(request: Request) -> str | None:
