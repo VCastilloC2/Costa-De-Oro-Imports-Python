@@ -31,3 +31,18 @@ CREATE TABLE IF NOT EXISTS passkey_challenge (
     expira_en DATETIME NOT NULL,
     KEY ix_passkey_challenge_expira (expira_en)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Credencial de dispositivo para autenticación tras verificación biométrica local.
+-- Guarda un hash de secreto aleatorio, nunca huellas ni plantillas biométricas.
+CREATE TABLE IF NOT EXISTS biometric_credential (
+    credential_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    usuario_id BIGINT NOT NULL,
+    device_id VARCHAR(64) NOT NULL,
+    secret_hash CHAR(64) NOT NULL,
+    device_name VARCHAR(60) NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL,
+    UNIQUE KEY uq_biometric_user_device (usuario_id, device_id),
+    CONSTRAINT fk_biometric_credential_usuario FOREIGN KEY (usuario_id)
+        REFERENCES usuario (usuario_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

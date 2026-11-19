@@ -6,6 +6,7 @@ import logging
 import secrets
 import smtplib
 import time
+import hmac
 from email.message import EmailMessage
 
 import jwt
@@ -22,7 +23,7 @@ from app.core.cache import (
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_token, hash_password, verify_password, is_bcrypt_hash
-from app.models import Rol, Usuario
+from app.models import BiometricCredential, Rol, Usuario
 from app.schemas import LoginRequest, OAuthLoginRequest, RegisterRequest, UserResponse
 
 router = APIRouter(tags=["Autenticación"])
@@ -42,6 +43,16 @@ class PasswordResetVerifyRequest(PasswordResetRequest):
 
 class PasswordResetCompleteRequest(PasswordResetVerifyRequest):
     nueva_contrasena: str = Field(min_length=6, max_length=128)
+
+
+class BiometricRegisterRequest(BaseModel):
+    device_id: str = Field(min_length=16, max_length=64, pattern=r"^[a-fA-F0-9]+$")
+    device_secret: str = Field(min_length=32, max_length=128)
+    device_name: str | None = Field(None, max_length=60)
+
+
+class BiometricLoginRequest(BiometricRegisterRequest):
+    correo: EmailStr
 
 
 def _reset_email_key(correo: str) -> str:
@@ -228,6 +239,56 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         role_name,
         cached_credentials.get("password_hash") if used_cached_credentials and cached_credentials else None,
     )
+
+
+def _biometric_key(user_id: int, device_id: str) -> str:
+    return f"auth:biometric:{user_id}:{device_id}"
+
+
+@router.post("/auth/biometric/register")
+def register_biometric(payload: BiometricRegisterRequest, user: Usuario = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Vincula un secreto aleatorio del dispositivo tras una sesión autenticada. No recibe biometría."""
+    digest = hashlib.sha256(payload.device_secret.encode()).hexdigest()
+    record = db.scalar(select(BiometricCredential).where(
+        BiometricCredential.usuario_id == user.usuario_id,
+        BiometricCredential.device_id == payload.device_id,
+    ))
+    if record:
+        record.secret_hash, record.device_name, record.active = digest, payload.device_name, True
+    else:
+        db.add(BiometricCredential(usuario_id=user.usuario_id, device_id=payload.device_id,
+                                   secret_hash=digest, device_name=payload.device_name, active=True))
+    db.commit()
+    cache_set_json(_biometric_key(int(user.usuario_id), payload.device_id), {"secret_hash": digest}, 31536000)
+    return {"success": True, "message": "Biometría del dispositivo vinculada"}
+
+
+@router.post("/auth/biometric/login")
+def login_biometric(payload: BiometricLoginRequest, db: Session = Depends(get_db)):
+    """Verifica el secreto del dispositivo (tras desbloqueo biométrico local) y crea sesión."""
+    email = str(payload.correo).strip().lower()
+    user = db.scalar(select(Usuario).where(Usuario.correo == email))
+    if not user or not _user_active(user):
+        raise HTTPException(401, "Credenciales biométricas inválidas")
+    key = _biometric_key(int(user.usuario_id), payload.device_id)
+    cached = cache_get_json(key)
+    stored = cached.get("secret_hash") if isinstance(cached, dict) else None
+    if not stored:
+        credential = db.scalar(select(BiometricCredential).where(
+            BiometricCredential.usuario_id == user.usuario_id,
+            BiometricCredential.device_id == payload.device_id,
+            BiometricCredential.active.is_(True),
+        ))
+        stored = credential.secret_hash if credential else None
+    candidate = hashlib.sha256(payload.device_secret.encode()).hexdigest()
+    if not stored or not hmac.compare_digest(str(stored), candidate):
+        raise HTTPException(401, "Credenciales biométricas inválidas")
+    role = db.get(Rol, user.rol_id) if user.rol_id else None
+    if not role or not role.rol:
+        raise HTTPException(403, "La cuenta no tiene un rol válido asignado")
+    cache_set_json(key, {"secret_hash": stored}, 31536000)
+    return {**_issue_token(user, str(role.rol)), "auth_method": "device_biometric"}
 
 @router.post("/auth/registro", status_code=201, response_model=UserResponse)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):

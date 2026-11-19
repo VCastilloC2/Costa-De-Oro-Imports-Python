@@ -41,3 +41,16 @@ class PasskeyChallenge(Base):
     expira_en: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     __table_args__ = (Index("ix_passkey_challenge_expira", "expira_en"),)
+
+
+class BiometricCredential(Base):
+    """Secreto del dispositivo (hash solamente); nunca almacena datos biométricos."""
+    __tablename__ = "biometric_credential"
+    credential_id: Mapped[int] = mapped_column(PK_ID, primary_key=True, autoincrement=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuario.usuario_id", ondelete="CASCADE"), nullable=False)
+    device_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    secret_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    device_name: Mapped[str | None] = mapped_column(String(60))
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (Index("uq_biometric_user_device", "usuario_id", "device_id", unique=True),)
