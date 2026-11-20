@@ -136,13 +136,16 @@ def datos_grafica(
                 {"nombre": name, "tipo": "numeric", "rol": "predictora"}
                 for name in (metadata.get("variables") or [])
             ]
-            result["herramientas"] = ["Python", "FastAPI", "Pandas", "NumPy", "TensorFlow/Keras", "Scikit-Learn", "StandardScaler"]
+            result["herramientas"] = ["Python", "FastAPI", f"Pandas {__import__('pandas').__version__}", f"NumPy {__import__('numpy').__version__}", "TensorFlow/Keras", "Scikit-Learn", "StandardScaler"]
         else:
             result["historial_entrenamiento"] = {"epocas": [], "loss": []}
             result["variables_utilizadas"] = []
             modelo = modelo_actual or "holt_winters_amortiguado"
             nombre_modelo = "Referencia estacional (12 meses)" if modelo.startswith("naive_estacional") else "Holt-Winters amortiguado"
-            result["herramientas"] = ["Python", "FastAPI", "Pandas", "NumPy", f"Pronóstico: {nombre_modelo}"]
+            import pandas as pd
+            import numpy as np
+            import fastapi
+            result["herramientas"] = [f"Python", f"FastAPI {fastapi.__version__}", f"Pandas {pd.__version__}", f"NumPy {np.__version__}", f"Pronóstico: {nombre_modelo}"]
         return result
     except ValueError as exc:  # datos insuficientes, rango inválido...
         raise HTTPException(422, str(exc)) from exc
