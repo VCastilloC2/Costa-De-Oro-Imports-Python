@@ -264,6 +264,38 @@ def register_biometric(payload: BiometricRegisterRequest, user: Usuario = Depend
     return {"success": True, "message": "Biometría del dispositivo vinculada"}
 
 
+@router.get("/auth/biometric/devices")
+def list_biometric_devices(user: Usuario = Depends(current_user), db: Session = Depends(get_db)):
+    """Lista los dispositivos vinculados a la cuenta; nunca devuelve secretos biométricos."""
+    rows = db.scalars(select(BiometricCredential).where(
+        BiometricCredential.usuario_id == user.usuario_id,
+        BiometricCredential.active.is_(True),
+    ).order_by(BiometricCredential.created_at.desc())).all()
+    return [{
+        "credential_id": row.credential_id,
+        "device_id": row.device_id,
+        "device_name": row.device_name,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    } for row in rows]
+
+
+@router.delete("/auth/biometric/devices/{credential_id}")
+def revoke_biometric_device(credential_id: int, user: Usuario = Depends(current_user),
+                            db: Session = Depends(get_db)):
+    """Revoca un dispositivo biométrico propio y elimina su secreto almacenado en caché."""
+    row = db.scalar(select(BiometricCredential).where(
+        BiometricCredential.credential_id == credential_id,
+        BiometricCredential.usuario_id == user.usuario_id,
+        BiometricCredential.active.is_(True),
+    ))
+    if row is None:
+        raise HTTPException(404, "Dispositivo biométrico no encontrado")
+    row.active = False
+    db.commit()
+    cache_delete(_biometric_key(int(user.usuario_id), row.device_id))
+    return {"success": True, "message": "Dispositivo biométrico revocado", "credential_id": credential_id}
+
+
 @router.post("/auth/biometric/login")
 def login_biometric(payload: BiometricLoginRequest, db: Session = Depends(get_db)):
     """Verifica el secreto del dispositivo (tras desbloqueo biométrico local) y crea sesión."""

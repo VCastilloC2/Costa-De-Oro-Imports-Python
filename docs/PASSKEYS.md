@@ -101,6 +101,13 @@ que **la app Flutter ya llama** (`AuthRepository`); ambas ejecutan el mismo cód
 | Sesión | `GET /api/v1/auth/session/validate` | — | `Authorization: Bearer <token>` |
 | Mis passkeys | `GET /api/v1/auth/passkey/credentials` | — | `Authorization: Bearer <JWT>` |
 | Revocar | `DELETE /api/v1/auth/passkey/credentials/{passkey_id}` | — | `Authorization: Bearer <JWT>` |
+| Dispositivos biométricos vinculados | `GET /auth/biometric/devices` | — | `Authorization: Bearer <JWT>` |
+| Revocar dispositivo biométrico | `DELETE /auth/biometric/devices/{credential_id}` | — | `Authorization: Bearer <JWT>` |
+
+Los endpoints biométricos listan o revocan la asociación de un dispositivo con la cuenta. No revelan
+ni reciben huellas, rostros o PIN: la verificación biométrica ocurre dentro del sistema operativo.
+El listado incluye `credential_id`, `device_id`, `device_name` y `created_at`; nunca incluye el hash
+del secreto. Ambas rutas usan la tabla `biometric_credential` creada por `app/sql/passkeys.sql`.
 
 Todos los binarios van en **base64url sin relleno**. Los errores usan el formato del resto de `/auth`:
 `{"detail": "mensaje para el usuario"}`.
