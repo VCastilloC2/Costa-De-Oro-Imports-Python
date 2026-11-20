@@ -229,6 +229,10 @@ def load_transactions(db: Session | None, source: str = "auto") -> ExtractionRes
         except Exception as exc:  # noqa: BLE001 - se informa y, si procede, se usa el respaldo
             logger.warning("No se pudieron extraer ventas de MySQL", exc_info=True)
             warnings.append(f"No se pudieron extraer ventas de MySQL: {type(exc).__name__}")
+        finally:
+            # Release the checked-out connection before Pandas/TensorFlow preparation begins.
+            # Sessions are request-scoped and remain usable after rollback.
+            db.rollback()
     else:
         warnings.append("No se recibió sesión de base de datos")
     if source == "database":

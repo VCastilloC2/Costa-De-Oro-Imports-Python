@@ -29,7 +29,8 @@ if _tls_requested:
     # PyMySQL uses ssl_disabled=False; useSSL/requireSSL are Connector/J options.
     _connect_args["ssl_disabled"] = False
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=5,
+engine = create_engine(DATABASE_URL, pool_pre_ping=True,
+                       pool_size=settings.db_pool_size, max_overflow=settings.db_max_overflow,
                        pool_recycle=1200, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 class Base(DeclarativeBase): pass

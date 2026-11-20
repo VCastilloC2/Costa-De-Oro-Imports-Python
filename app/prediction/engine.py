@@ -86,6 +86,9 @@ def _monthly_paid_sales(db: Session, today: date) -> pd.DataFrame:
         .order_by(extract("year", Compra.fecha), extract("month", Compra.fecha))
     )
     rows = db.execute(query).all()
+    # The forecast is computed in Pandas after this query; release MySQL while the
+    # CPU-bound modeling work runs instead of holding a pooled connection idle.
+    db.rollback()
     if not rows:
         raise ValueError("MySQL no tiene compras PAGADO con fecha y total válidos para el pronóstico")
     return pd.DataFrame([{"anno": int(row.anno), "mes": int(row.mes),

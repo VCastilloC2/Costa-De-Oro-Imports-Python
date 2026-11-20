@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     db_url: str = Field("mysql+pymysql://jdbc:mysql://localhost:3306/db_beer?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC", validation_alias=AliasChoices("DATABASE_URL", "DB_URL", "SPRING_DATASOURCE_URL"))
     db_username: str = Field("", validation_alias=AliasChoices("DB_USERNAME", "SPRING_DATASOURCE_USERNAME"))
     db_password: str = Field("", validation_alias=AliasChoices("DB_PASSWORD", "SPRING_DATASOURCE_PASSWORD"))
+    # Render/MySQL plans often cap a DB user at five connections. Keep a small per-instance pool.
+    db_pool_size: int = Field(2, ge=1, le=10, validation_alias=AliasChoices("DB_POOL_SIZE"))
+    db_max_overflow: int = Field(0, ge=0, le=10, validation_alias=AliasChoices("DB_MAX_OVERFLOW"))
     valkey_url: str | None = Field(default=None, validation_alias=AliasChoices("VALKEY_URL", "REDIS_URL"))
     valkey_cache_ttl_seconds: int = Field(300, ge=1, le=86400, validation_alias=AliasChoices("VALKEY_CACHE_TTL_SECONDS"))
     valkey_auth_ttl_seconds: int = Field(300, ge=1, le=86400, validation_alias=AliasChoices("VALKEY_AUTH_TTL_SECONDS"))
