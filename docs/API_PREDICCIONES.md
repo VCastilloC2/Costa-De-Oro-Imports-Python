@@ -222,8 +222,15 @@ Emitir una API Key (como ADMIN):
 ```bash
 curl -X POST "$PREDICCION_API_URL/api/v1/predictions/clients" \
   -H "Authorization: Bearer $ADMIN_JWT" -H "Content-Type: application/json" \
-  -d '{"name": "erp-spring-boot", "scopes": ["predictions:read", "predictions:generate"]}'
+  -d '{"name": "erp-spring-boot", "scopes": ["predictions:read", "predictions:generate", "admin:read"]}'
 ```
+
+Para conectar esta API con Spring Boot y habilitar las gráficas `/api/graficas/*`, la clave debe incluir
+`admin:read`; Spring también envía `X-Admin-Email` con el correo del administrador autenticado. Añade
+`admin:write` solo si Spring debe ejecutar operaciones administrativas de escritura en FastAPI. Una clave
+ya emitida no puede cambiar de permisos: crea una nueva con los scopes necesarios, actualiza
+`FASTAPI_API_KEY` en Spring y revoca la anterior desde `DELETE /api/v1/predictions/clients/{client_id}`.
+Las rutas y métodos de FastAPI no necesitan cambios ni se desactiva su autorización.
 
 ## 5. Disponibilidad y rendimiento
 

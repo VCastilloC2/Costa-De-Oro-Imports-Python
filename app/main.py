@@ -3,7 +3,7 @@ import asyncio
 import logging
 import re
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select, text
@@ -82,7 +82,7 @@ def root():
     include_in_schema=True,
     tags=["Passkeys"]
 )
-def android_assetlinks():
+def android_assetlinks(request: Request):
     """Publica la asociación Android necesaria para Passkeys."""
 
     package_name = settings.passkey_android_package_name.strip()
@@ -106,18 +106,27 @@ def android_assetlinks():
         content=[
             {
                 "relation": [
-                    "delegate_permission/common.get_login_creds"
+                    "delegate_permission/common.handle_all_urls",
+                    "delegate_permission/common.get_login_creds",
                 ],
                 "target": {
                     "namespace": "android_app",
                     "package_name": package_name,
                     "sha256_cert_fingerprints": fingerprints,
                 },
-            }
+            },
+            {
+                "relation": [
+                    "delegate_permission/common.handle_all_urls",
+                    "delegate_permission/common.get_login_creds",
+                ],
+                "target": {
+                    "namespace": "web",
+                    "site": f"https://{request.url.hostname}",
+                },
+            },
         ],
-        headers={
-            "Cache-Control": "public, max-age=3600"
-        },
+        headers={"Cache-Control": "public, max-age=300"},
     )
 
 
