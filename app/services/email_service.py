@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import smtplib
 import ssl
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
@@ -17,6 +18,36 @@ logger = logging.getLogger(__name__)
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates" / "emails"
 _templates = Environment(loader=FileSystemLoader(TEMPLATES), autoescape=select_autoescape(["html"]))
 _email_adapter = TypeAdapter(EmailStr)
+
+
+def _email_date() -> str:
+    """Return the footer date in the company's local timezone."""
+    bogota = timezone(timedelta(hours=-5))
+    return datetime.now(bogota).strftime("%d/%m/%Y")
+
+
+def _email_theme() -> dict[str, str]:
+    """Choose a readable email palette using the send time in Colombia."""
+    bogota_now = datetime.now(timezone(timedelta(hours=-5)))
+    if 6 <= bogota_now.hour < 18:
+        return {
+            "fondo": "#f8f9fa", "tarjeta": "#ffffff", "texto": "#27272a",
+            "secundario": "#52525b", "atenuado": "#71717a", "cabecera": "#18181b",
+            "texto_cabecera": "#ffffff", "subtitulo": "#d4d4d8", "pie": "#fafafa",
+            "borde": "#e4e4e7", "panel": "#f0f3f2", "panel_acento": "#fffbeb",
+            "panel_acento_borde": "#fde68a", "panel_acento_texto": "#92400e",
+            "alerta": "#fef2f2", "alerta_borde": "#ef4444", "alerta_texto": "#991b1b",
+            "alerta_lista": "#7f1d1d",
+        }
+    return {
+        "fondo": "#111827", "tarjeta": "#1f2937", "texto": "#f9fafb",
+        "secundario": "#d1d5db", "atenuado": "#9ca3af", "cabecera": "#111827",
+        "texto_cabecera": "#ffffff", "subtitulo": "#d1d5db", "pie": "#111827",
+        "borde": "#374151", "panel": "#273449", "panel_acento": "#3b321f",
+        "panel_acento_borde": "#a16207", "panel_acento_texto": "#fde68a",
+        "alerta": "#3b2328", "alerta_borde": "#f87171", "alerta_texto": "#fecaca",
+        "alerta_lista": "#fee2e2",
+    }
 
 
 def validate_email_domain(address: str) -> bool:
@@ -50,6 +81,8 @@ def validate_email_domain(address: str) -> bool:
 
 
 def render_email(template: str, **context: object) -> str:
+    context.setdefault("fecha_actual", _email_date())
+    context.setdefault("tema", _email_theme())
     return _templates.get_template(template).render(**context)
 
 

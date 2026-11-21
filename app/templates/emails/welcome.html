@@ -1,46 +1,114 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
-
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width">
-    <title>Bienvenido</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¡Bienvenido a Costa de Oro Imports!</title>
 </head>
 
-<body style="margin:0;background:#f8f9fa;font-family:Arial,sans-serif;color:#27272a">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 8px">
+<body style="margin:0;padding:0;background:{{ tema.fondo }};font-family:'Urbanist',Arial,sans-serif;color:{{ tema.texto }};">
+
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+       style="background:{{ tema.fondo }};padding:30px 12px;">
     <tr>
         <td align="center">
-            <table role="presentation" width="600"
-                   style="max-width:600px;width:100%;background:#fff;border-radius:10px;overflow:hidden">
+
+            <table role="presentation" width="600" cellspacing="0" cellpadding="0"
+                   style="width:100%;max-width:600px;background:{{ tema.tarjeta }};border-radius:10px;overflow:hidden;">
+
+                <!-- Header -->
                 <tr>
-                    <td style="background:#f59e0b;color:#fff;padding:28px;text-align:center">
-                        <h1>¡Bienvenido!</h1>
-                        <p>Costa De Oro Imports</p>
+                    <td style="background:{{ tema.cabecera }};color:{{ tema.texto_cabecera }};padding:28px;text-align:center;">
+                        <h1 style="margin:0;font-size:26px;font-weight:700;">
+                            ¡Bienvenido!
+                        </h1>
+                        <p style="margin:10px 0 0;font-size:15px;color:{{ tema.subtitulo }};">
+                            Costa de Oro Imports
+                        </p>
                     </td>
                 </tr>
+
+                <!-- Content -->
                 <tr>
-                    <td style="padding:30px">
-                        <h2>Hola, {{ nombre }}!</h2>
-                        <p>Nos alegra que te unas a Costa De Oro Imports.</p>
-                        <p><strong>Perfil:</strong> {{ tipo_usuario }}</p>{% if empresa %}<p><strong>Empresa
-                        asociada:</strong> {{ empresa }}</p>{% endif %}<p>Ahora puedes explorar nuestro
-                        catálogo, realizar compras para tu negocio, gestionar tus pedidos y recibir ofertas.</p>
-                        <p style="text-align:center;margin:28px"><a href="{{ url_login }}"
-                                                                    style="background:#f59e0b;color:#fff;padding:13px 25px;text-decoration:none;border-radius:5px">Acceder
-                            a la plataforma</a></p>
-                        <p>Si tienes alguna pregunta, contáctanos.</p>
+                    <td style="padding:30px;">
+
+                        <div style="text-align:center;font-size:42px;margin-bottom:20px;">
+                            👋
+                        </div>
+
+                        <h2 style="font-size:21px;margin:0 0 20px;color:{{ tema.texto }};">
+                            ¡Hola, {{ nombre }}!
+                        </h2>
+
+                        <p style="font-size:15px;line-height:1.7;color:{{ tema.secundario }};">
+                            Nos alegra mucho que te hayas registrado en nuestra tienda
+                            en línea <strong>Costa de Oro Imports</strong>.
+                            ¡Estamos encantados de tenerte con nosotros!
+                        </p>
+
+                        <!-- User information -->
+                        <div style="background:{{ tema.panel_acento }};border-left:4px solid #f59e0b;padding:16px;border-radius:5px;margin:22px 0;color:{{ tema.texto }};">
+
+                            <p style="margin:5px 0;font-size:15px;">
+                                <strong>Tu perfil:</strong> {{ tipo_usuario }}
+                            </p>
+
+                            {% if empresa %}
+                            <p style="margin:10px 0 5px;font-size:15px;">
+                                <strong>Empresa asociada:</strong> {{ empresa }}
+                            </p>
+                            {% endif %}
+
+                        </div>
+
+                        <p style="font-size:15px;line-height:1.7;color:{{ tema.secundario }};">
+                            Ahora que formas parte de nuestra comunidad, podrás:
+                        </p>
+
+                        <ul style="padding-left:22px;color:{{ tema.secundario }};font-size:15px;line-height:2;">
+                            <li>Explorar nuestro catálogo de productos.</li>
+                            <li>Realizar compras para tu negocio.</li>
+                            <li>Gestionar y consultar tus pedidos.</li>
+                            <li>Recibir ofertas y promociones exclusivas.</li>
+                        </ul>
+
+                        <!-- Button -->
+                        <div style="text-align:center;margin:30px 0;">
+                            <a href="{{ url_login }}"
+                               style="display:inline-block;background:#f59e0b;color:#18181b;padding:14px 30px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:bold;">
+                                Comenzar a explorar
+                            </a>
+                        </div>
+
+                        <p style="font-size:14px;line-height:1.7;color:{{ tema.atenuado }};">
+                            Si tienes alguna pregunta o necesitas ayuda, no dudes
+                            en ponerte en contacto con nuestro equipo de soporte.
+                        </p>
+
+                        <p style="font-size:15px;color:{{ tema.texto }};">
+                            ¡Gracias por confiar en nosotros!
+                        </p>
+
                     </td>
                 </tr>
+
+                <!-- Footer -->
                 <tr>
-                    <td style="padding:20px;text-align:center;color:#71717a;font-size:13px">Sistema de Gestión
-                        Integral · Cartagena, Colombia
+                    <td style="background:{{ tema.pie }};padding:20px;text-align:center;border-top:1px solid {{ tema.borde }};">
+                        <p style="margin:5px 0;color:{{ tema.atenuado }};font-size:13px;">
+                            Sistema de Gestión Integral · Cartagena, Colombia
+                        </p>
+                        <p style="margin:5px 0;color:{{ tema.atenuado }};font-size:12px;">
+                            Costa de Oro Imports · {{ fecha_actual }}
+                        </p>
                     </td>
                 </tr>
+
             </table>
+
         </td>
     </tr>
 </table>
-</body>
 
+</body>
 </html>

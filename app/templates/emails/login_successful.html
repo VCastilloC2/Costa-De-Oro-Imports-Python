@@ -1,54 +1,126 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
-
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width">
-    <title>Inicio de sesión</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inicio de sesión exitoso</title>
 </head>
 
-<body style="margin:0;background:#f8f9fa;font-family:Arial,sans-serif;color:#27272a">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 8px">
-        <tr>
-            <td align="center">
-                <table role="presentation" width="600"
-                    style="max-width:600px;width:100%;background:#fff;border-radius:10px;overflow:hidden">
-                    <tr>
-                        <td style="background:#18181b;color:#fff;padding:25px;text-align:center">
-                            <h1>Inicio de sesión exitoso</h1>
-                            <p>Costa De Oro Imports</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding:30px">
-                            <h2>Hola, {{ nombre }}!</h2>
-                            <p>Se registró un inicio de sesión en tu cuenta:</p>
-                            <table role="presentation" width="100%" style="background:#f0f3f2;padding:15px">
-                                <tr>
-                                    <td><strong>Fecha y hora:</strong> {{ fecha }}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Dispositivo:</strong> {{ dispositivo }}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Ubicación aproximada:</strong> {{ ubicacion }}</td>
-                                </tr>
-                            </table>
-                            <p>Si reconoces esta actividad, no necesitas hacer nada.</p>
-                            <p><strong>¿No la reconoces?</strong> Cambia tu contraseña, revisa la actividad reciente y
-                                contacta con soporte si necesitas ayuda.</p>
-                            <p>Usa contraseñas seguras, no compartas tus credenciales y cierra sesión en dispositivos
-                                públicos.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding:20px;text-align:center;color:#71717a;font-size:13px">Sistema de Gestión
-                            Integral · Cartagena, Colombia</td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
+<body style="margin:0;padding:0;background:{{ tema.fondo }};font-family:'Urbanist',Arial,sans-serif;color:{{ tema.texto }};">
 
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+       style="background:{{ tema.fondo }};padding:30px 12px;">
+    <tr>
+        <td align="center">
+
+            <table role="presentation" width="600" cellspacing="0" cellpadding="0"
+                   style="width:100%;max-width:600px;background:{{ tema.tarjeta }};border-radius:10px;overflow:hidden;">
+
+                <!-- Header -->
+                <tr>
+                    <td style="background:{{ tema.cabecera }};color:{{ tema.texto_cabecera }};padding:28px;text-align:center;">
+                        <h1 style="margin:0;font-size:25px;">
+                            Inicio de Sesión Exitoso
+                        </h1>
+                        <p style="margin:10px 0 0;color:{{ tema.subtitulo }};font-size:15px;">
+                            Costa de Oro Imports
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- Content -->
+                <tr>
+                    <td style="padding:30px;">
+
+                        <div style="text-align:center;font-size:40px;margin-bottom:20px;">
+                            🔐
+                        </div>
+
+                        <h2 style="font-size:21px;margin:0 0 20px;color:{{ tema.texto }};">
+                            ¡Hola, {{ nombre }}!
+                        </h2>
+
+                        <p style="font-size:15px;line-height:1.7;color:{{ tema.secundario }};">
+                            Se ha detectado un inicio de sesión en tu cuenta
+                            de Costa de Oro Imports. A continuación, te mostramos
+                            los detalles de la actividad:
+                        </p>
+
+                        <!-- Security information -->
+                        <div style="background:{{ tema.panel }};padding:20px;border-radius:7px;margin:22px 0;">
+
+                            <p style="margin:8px 0;font-size:14px;color:{{ tema.secundario }};">
+                                <strong style="color:{{ tema.texto }};">📅 Fecha y hora:</strong>
+                                {{ fecha }}
+                            </p>
+
+                            <p style="margin:12px 0;font-size:14px;color:{{ tema.secundario }};">
+                                <strong style="color:{{ tema.texto }};">💻 Dispositivo:</strong>
+                                {{ dispositivo }}
+                            </p>
+
+                            <p style="margin:12px 0 8px;font-size:14px;color:{{ tema.secundario }};">
+                                <strong style="color:{{ tema.texto }};">📍 Ubicación aproximada:</strong>
+                                {{ ubicacion }}
+                            </p>
+
+                        </div>
+
+                        <p style="font-size:15px;line-height:1.7;color:{{ tema.secundario }};">
+                            Si reconoces esta actividad, no necesitas realizar
+                            ninguna acción.
+                        </p>
+
+                        <!-- Warning -->
+                        <div style="background:{{ tema.alerta }};border-left:4px solid {{ tema.alerta_borde }};padding:16px;border-radius:5px;margin:22px 0;">
+
+                            <p style="margin:0 0 10px;font-size:15px;color:{{ tema.alerta_texto }};">
+                                <strong>¿No reconoces este inicio de sesión?</strong>
+                            </p>
+
+                            <ul style="margin:0;padding-left:20px;color:{{ tema.alerta_lista }};font-size:14px;line-height:1.9;">
+                                <li>Cambia tu contraseña inmediatamente.</li>
+                                <li>Revisa la actividad reciente de tu cuenta.</li>
+                                <li>Contacta con soporte si necesitas ayuda.</li>
+                            </ul>
+
+                        </div>
+
+                        <p style="font-size:15px;color:{{ tema.texto }};">
+                            <strong>Recomendaciones de seguridad:</strong>
+                        </p>
+
+                        <ul style="padding-left:22px;color:{{ tema.secundario }};font-size:14px;line-height:1.9;">
+                            <li>Utiliza contraseñas seguras y únicas.</li>
+                            <li>No compartas tus credenciales de acceso.</li>
+                            <li>Cierra sesión en dispositivos públicos o compartidos.</li>
+                        </ul>
+
+                        <p style="font-size:14px;line-height:1.7;color:{{ tema.atenuado }};margin-top:25px;">
+                            Tu seguridad es importante para nosotros.
+                            Gracias por confiar en Costa de Oro Imports.
+                        </p>
+
+                    </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                    <td style="background:{{ tema.pie }};padding:20px;text-align:center;border-top:1px solid {{ tema.borde }};">
+                        <p style="margin:5px 0;color:{{ tema.atenuado }};font-size:13px;">
+                            Sistema de Gestión Integral · Cartagena, Colombia
+                        </p>
+                        <p style="margin:5px 0;color:{{ tema.atenuado }};font-size:12px;">
+                            Costa de Oro Imports · {{ fecha_actual }}
+                        </p>
+                    </td>
+                </tr>
+
+            </table>
+
+        </td>
+    </tr>
+</table>
+
+</body>
 </html>
