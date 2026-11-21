@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 def _validate_window(years: int, forecast_months: int) -> None:
     if not 1 <= years <= 10:
         raise ValueError("anios debe estar entre 1 y 10")
-    if not 0 <= forecast_months <= 24:
-        raise ValueError("proyeccion_meses debe estar entre 0 y 24")
+    if not 0 <= forecast_months <= 12:
+        raise ValueError("proyeccion_meses debe estar entre 0 y 12")
 
 
 def _monthly_forecast(model: SalesEnsemble, data: pd.DataFrame, year: int, month: int) -> float:
@@ -146,7 +146,12 @@ def _forecast_with_trained_tensorflow(db: Session, today: date, years: int, fore
     }
     last_history = history["periodo"].iloc[-1]
     start = pd.Period(year=today.year - years + 1, month=1, freq="M")
-    months = pd.period_range(start, periods=years * 12 + forecast_months, freq="M")
+    current_year_end = pd.Period(year=today.year, month=12, freq="M")
+    chart_end = (
+        min(max(current_year_end, last_history), last_history + 12)
+        if forecast_months == 0 else last_history + forecast_months
+    )
+    months = pd.period_range(start, end=chart_end, freq="M")
     this_month = pd.Period(year=today.year, month=today.month, freq="M")
     series = []
     for period in months:
@@ -235,10 +240,15 @@ def generate_forecast(
     validation = backtest(history)
     use_seasonal_baseline = bool(validation and validation.get("modelo_elegido", "").startswith("naive_estacional"))
 
-    start = pd.Period(year=today.year - years + 1, month=1, freq="M")
-    months = pd.period_range(start, periods=years * 12 + forecast_months, freq="M")
-    this_month = pd.Period(year=today.year, month=today.month, freq="M")
     last_hist = history.index[-1]
+    start = pd.Period(year=today.year - years + 1, month=1, freq="M")
+    current_year_end = pd.Period(year=today.year, month=12, freq="M")
+    chart_end = (
+        min(max(current_year_end, last_hist), last_hist + 12)
+        if forecast_months == 0 else last_hist + forecast_months
+    )
+    months = pd.period_range(start, end=chart_end, freq="M")
+    this_month = pd.Period(year=today.year, month=today.month, freq="M")
     horizon = max(0, months[-1].ordinal - last_hist.ordinal)
     future = (np.resize(history.iloc[-12:].to_numpy(dtype=float), horizon)
               if use_seasonal_baseline and horizon else model.forecast(horizon))
@@ -312,6 +322,8 @@ def forecast_month(db: Session, year: int, month: int, today: date | None = None
                  else float(model.fitted[target.ordinal - history.index[0].ordinal]))
     else:
         horizon = target.ordinal - history.index[-1].ordinal
+        if horizon > 12:
+            raise ValueError("La predicción mensual no puede superar 12 meses desde el último mes con datos")
         value = (float(np.resize(history.iloc[-12:].to_numpy(dtype=float), horizon)[-1])
                  if use_seasonal_baseline else float(model.forecast(horizon)[-1]))
     return {"anno": year, "mes": month, "prediccion": round(value, 2)}

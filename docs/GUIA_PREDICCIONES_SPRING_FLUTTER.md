@@ -4,7 +4,7 @@
 
 Flutter y el navegador llaman a Spring Boot. Spring verifica la sesión del usuario y consulta FastAPI usando la clave de servicio configurada en `FASTAPI_API_KEY`. FastAPI es el único servicio que prepara los datos y calcula pronósticos. Java no carga ni ejecuta modelos locales; WEKA se retiró de la aplicación Spring.
 
-Swagger presenta todas las operaciones bajo una única etiqueta **Predicción**. Siguen existiendo endpoints separados porque cada uno cumple una operación diferente; no es necesario llamar a todos para generar una proyección. La pantalla histórica/proyección usa Holt-Winters amortiguado o una referencia estacional que repite el año anterior. FastAPI compara ambos con un backtest rodante: predice cada mes con los datos anteriores y elige el método con menor WMAPE. La métrica mide el pronóstico a un mes actualizado mes a mes; no es una garantía para 12 o 24 meses. `POST /api/v1/predictions/demand` es otro estimador por compra que combina regresión y TensorFlow/Keras. El entrenamiento versionado de `/model/train` es otro modelo neuronal temporal con rezagos. Esos modelos tienen objetivos y variables distintos y la UI ya no muestra una curva de pérdida vacía.
+Swagger presenta todas las operaciones bajo una única etiqueta **Predicción**. Siguen existiendo endpoints separados porque cada uno cumple una operación diferente; no es necesario llamar a todos para generar una proyección. La pantalla histórica/proyección usa Holt-Winters amortiguado o una referencia estacional que repite el año anterior. FastAPI compara ambos con un backtest rodante: predice cada mes con los datos anteriores y elige el método con menor WMAPE. La gráfica limita la proyección a 12 meses (un ciclo anual). La métrica mide el pronóstico a un mes actualizado mes a mes; no garantiza la precisión de una proyección fija a 12 meses. `POST /api/v1/predictions/demand` es otro estimador por compra que combina regresión y TensorFlow/Keras. El entrenamiento versionado de `/model/train` es otro modelo neuronal temporal con rezagos. Esos modelos tienen objetivos y variables distintos y la UI ya no muestra una curva de pérdida vacía.
 
 ## Pasos de minería de datos
 
@@ -18,7 +18,7 @@ Swagger presenta todas las operaciones bajo una única etiqueta **Predicción**.
 
 ## Endpoints
 
-- **Spring para web/Flutter:** `GET /api/v1/predicciones/ventas?meses=12` (meses entre 0 y 24; requiere usuario autenticado). Responde con `serie`, `metricas`, `historial_entrenamiento`, `variables_utilizadas` y `herramientas`.
+- **Spring para web/Flutter:** `GET /api/v1/predicciones/ventas?meses=12` (meses entre 0 y 12; requiere usuario autenticado). Responde con `serie`, `metricas`, `historial_entrenamiento`, `variables_utilizadas` y `herramientas`.
 - **FastAPI detrás del proxy:** `GET /api/prediccion/datos-grafica?anios=6&proyeccion_meses=12` con `X-API-Key` de lectura.
 - **Evaluar el modelo con los últimos meses cerrados:** `GET /api/prediccion/evaluar-ultimos-meses?meses=5`. FastAPI hace una validación temporal rodante: para cada mes, ajusta con los meses anteriores y devuelve `comparacion` con `valor_real`, `valor_predicho` y `error_absoluto`, más MAE/MSE/WMAPE agregados. No incluye el mes actual incompleto.
 - **Proxy Spring para web/Flutter:** `GET /api/v1/predicciones/ventas/evaluacion?meses=5`. Usa la sesión del usuario de Spring; Spring consulta FastAPI con la API key interna.

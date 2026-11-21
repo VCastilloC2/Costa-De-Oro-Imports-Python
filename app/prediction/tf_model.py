@@ -8,8 +8,14 @@ TensorFlow se importa de forma diferida para no penalizar el arranque de las rut
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable
+
+# Render ejecuta este servicio en CPU. Evita que TensorFlow intente cargar CUDA
+# en una instancia sin GPU y mantén sus mensajes informativos fuera del log normal.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 MODEL_NAME = "TensorFlow Sales Prediction"
 ARCHITECTURE = [

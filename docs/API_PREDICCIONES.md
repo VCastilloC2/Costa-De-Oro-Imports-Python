@@ -72,11 +72,12 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
    o bien `python -m app.prediction.scripts_pred --create-ml-tables`.
 2. Configura en `.env` (ver `.env.example`): `PREDICTION_MODEL_DIR`, `PREDICTION_ALLOWED_ROLES`,
    `PREDICTION_MAX_CONCURRENT`, `PREDICTION_INFERENCE_TIMEOUT_SECONDS`, `PREDICTION_DEDUP_WINDOW_SECONDS`.
-3. Con `PREDICTION_TRAIN_BEFORE_STARTUP=true` (predeterminado), FastAPI verifica el historial MySQL
-   antes de aceptar solicitudes. Si falta el modelo, cambió la serie o el artefacto usa otra arquitectura,
-   crea una versión nueva con hasta 500 épocas y EarlyStopping; el proceso de arranque espera a que termine.
-   El endpoint del gráfico repite la verificación y reentrena sólo si la firma de MySQL cambió. Con datos
-   iguales reutiliza el modelo activo. Las tablas ML deben existir antes del primer arranque.
+3. Con `PREDICTION_TRAIN_BEFORE_STARTUP=true` (predeterminado), FastAPI inicia la verificación del historial
+   MySQL en segundo plano para enlazar el puerto HTTP sin esperar la inicialización de TensorFlow. Si falta
+   el modelo, cambió la serie o el artefacto usa otra arquitectura, crea una versión nueva con hasta 500
+   épocas y EarlyStopping. El endpoint del gráfico espera/repite la verificación y reentrena sólo si la firma
+   de MySQL cambió. Con datos iguales reutiliza el modelo activo. Las tablas ML deben existir antes del primer
+   arranque.
 4. También se puede iniciar un entrenamiento explícito como ADMIN con `POST /api/v1/predictions/model/train`
    y `{"granularity":"monthly","data_source":"database","epochs":500,"patience":60,"wait":true}`.
    `database` evita usar el CSV de respaldo. Comprueba `preparation.fuente_datos` y `fin_historia`.
@@ -126,12 +127,14 @@ La integración web/Spring tiene además las rutas completas `GET /api/prediccio
 `POST /api/prediccion/generar`. La primera devuelve historia mensual, proyección, backtest y métricas;
 la segunda predice un período concreto. Ambas requieren una API Key de servicio con el scope adecuado.
 El dashboard Spring expone `GET /api/v1/predicciones/ventas?meses=12` para que navegador o Flutter
-consulten la gráfica a través de Spring sin guardar la API Key de FastAPI en el cliente.
+consulten la gráfica a través de Spring sin guardar la API Key de FastAPI en el cliente. El horizonte
+admitido para esta gráfica es de 0 a 12 meses.
 
 La métrica `metricas.validacion` de la gráfica usa backtest rodante de un mes: FastAPI vuelve a ajustar
 el modelo con lo disponible antes de cada mes y compara con la venta real del mes siguiente. Esta
 medición representa una proyección que se actualiza cada mes; no garantiza la precisión de una
-proyección fija a 12 o 24 meses. Si `PREDICTION_DATA_SOURCE=database`, una falla de MySQL ya genera un
+proyección fija de hasta 12 meses. La gráfica limita el horizonte a un año para evitar extender más
+allá del ciclo estacional anual. Si `PREDICTION_DATA_SOURCE=database`, una falla de MySQL ya genera un
 error visible y no cambia silenciosamente a datos de demostración CSV.
 
 ### Contrato de respuesta

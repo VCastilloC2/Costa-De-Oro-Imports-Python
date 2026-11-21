@@ -109,7 +109,7 @@ def datos_grafica(
     principal: Annotated[dict, Depends(prediction_access(SCOPE_READ))],
     db: Annotated[Session, Depends(get_db)],
     anios: Annotated[int, Query(ge=1, le=10)] = 6,
-    proyeccion_meses: Annotated[int, Query(ge=0, le=24)] = 0,
+    proyeccion_meses: Annotated[int, Query(ge=0, le=12)] = 0,
 ) -> dict:
     logger.info("spring datos-grafica anios=%s proyeccion=%s by=%s requestId=%s",
                 anios, proyeccion_meses, principal["name"], _request_id(request))

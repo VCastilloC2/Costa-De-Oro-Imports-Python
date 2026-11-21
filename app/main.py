@@ -31,8 +31,25 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     if (settings.prediction_train_before_startup
             and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-        await asyncio.to_thread(_train_monthly_model_before_startup)
+        # No bloquear el bind del puerto de Render durante el entrenamiento TensorFlow.
+        # La tarea se conserva en app.state y las rutas que necesitan el modelo siguen
+        # comprobando/esperando el entrenamiento mediante training_service.
+        training_task = asyncio.create_task(
+            asyncio.to_thread(_train_monthly_model_before_startup),
+            name="monthly-model-startup-training",
+        )
+        training_task.add_done_callback(_log_startup_training)
+        app.state.prediction_startup_task = training_task
     yield
+
+
+def _log_startup_training(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except Exception:
+        logger.exception("Falló el entrenamiento mensual en segundo plano durante el arranque")
+    else:
+        logger.info("Entrenamiento mensual en segundo plano completado")
 
 
 def _train_monthly_model_before_startup() -> None:
@@ -126,7 +143,9 @@ def android_assetlinks(request: Request):
                 },
             },
         ],
-        headers={"Cache-Control": "public, max-age=300"},
+        # Esta respuesta depende de variables de entorno; evita que Swagger/navegadores
+        # mantengan la versión anterior tras cambiar las huellas o relaciones.
+        headers={"Cache-Control": "no-store"},
     )
 
 

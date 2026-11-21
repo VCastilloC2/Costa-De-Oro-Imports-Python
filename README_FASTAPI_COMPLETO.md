@@ -46,6 +46,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 
 Documentación: `http://localhost:8080/doc`; OpenAPI: `/v3/api-docs`; salud: `/health` y `/health/db`.
 
+### Render Web Service
+
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Health Check Path:** `/health`
+
+Render asigna `PORT` al servicio; no fijes el comando de arranque a `8080`. El calentamiento de TensorFlow
+se inicia en segundo plano para que el puerto quede disponible mientras se prepara el modelo.
+
 ## Autenticación y roles
 
 - `POST /auth/login`: `{"username":"correo@dominio.com","password":"..."}`. Devuelve `accessToken` y el rol asignado.
