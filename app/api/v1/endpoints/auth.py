@@ -4,13 +4,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
-import smtplib
 import time
 import hmac
-from email.message import EmailMessage
+from datetime import datetime, timezone
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,19 +17,21 @@ from sqlalchemy.orm import Session
 from app.api.deps import current_user, security
 from app.core.cache import (
     cache_auth_credentials, cache_auth_user, cache_delete, cache_get_json, cache_set_json,
-    credential_cache_key, revoke_token, token_cache_key, user_cache_key,
+    cache_pop_json, cache_set_json_if_absent, cache_ttl, credential_cache_key, revoke_token, token_cache_key, user_cache_key,
 )
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_token, hash_password, verify_password, is_bcrypt_hash
-from app.models import BiometricCredential, Rol, Usuario
+from app.models import BiometricCredential, Empresa, Rol, Usuario
 from app.schemas import LoginRequest, OAuthLoginRequest, RegisterRequest, UserResponse
+from app.services.email_service import send_login_notice, send_password_reset, send_welcome
 
 router = APIRouter(tags=["Autenticación"])
 logger = logging.getLogger(__name__)
 
 RESET_CODE_TTL = 600
 RESET_RESEND_TTL = 60
+DEFAULT_USER_IMAGE = "gestion-ventas/perfil-usuario/perfil-user"
 
 
 class PasswordResetRequest(BaseModel):
@@ -60,8 +61,21 @@ def _reset_email_key(correo: str) -> str:
     return f"auth:password-reset:{digest}"
 
 
+def _email_already_registered(db: Session, correo: str) -> bool:
+    """Check the normalized email in Valkey and authoritative MySQL storage."""
+    email = correo.strip().lower()
+    if cache_get_json(credential_cache_key(email)):
+        return True
+    return db.scalar(select(Usuario.usuario_id).where(Usuario.correo == email)) is not None
+
+
 def _reset_code_hash(correo: str, codigo: str) -> str:
-    return hashlib.sha256(f"{correo.strip().lower()}:{codigo}".encode("utf-8")).hexdigest()
+    key = (settings.jwt_secret_ecommerce or "").encode("utf-8")
+    return hmac.new(key, f"{correo.strip().lower()}:{codigo}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _generate_reset_code() -> str:
+    return f"{secrets.randbelow(100000):05d}"
 
 
 def _valid_reset_code(correo: str, codigo: str) -> bool:
@@ -75,49 +89,39 @@ def _valid_reset_code(correo: str, codigo: str) -> bool:
         if attempts >= 5:
             cache_delete(key)
         else:
-            cache_set_json(key, {**stored, "attempts": attempts}, RESET_CODE_TTL)
+            cache_set_json(key, {**stored, "attempts": attempts}, cache_ttl(key) or 1)
     return valid
 
 
-def _send_password_reset_email(correo: str, codigo: str) -> None:
-    if not settings.mail_username or not settings.mail_password:
-        raise RuntimeError("SMTP no está configurado")
-    mensaje = EmailMessage()
-    mensaje["Subject"] = "Código para restablecer tu contraseña"
-    mensaje["From"] = settings.mail_username
-    mensaje["To"] = correo
-    mensaje.set_content(
-        f"Tu código para restablecer la contraseña es: {codigo}\n\n"
-        f"Este código vence en 10 minutos. Si no solicitaste este cambio, ignora este mensaje."
-    )
-    with smtplib.SMTP(settings.mail_host, settings.mail_port, timeout=20) as smtp:
-        smtp.starttls()
-        smtp.login(settings.mail_username, settings.mail_password)
-        smtp.send_message(mensaje)
-
-
 @router.post("/auth/password/forgot")
-def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)) -> dict:
+def request_password_reset(payload: PasswordResetRequest, request: Request, db: Session = Depends(get_db)) -> dict:
     """Envía un código de cinco dígitos; la respuesta no revela si existe el correo."""
     correo = str(payload.correo).strip().lower()
-    user = db.scalar(select(Usuario).where(Usuario.correo == correo))
-    if not user:
-        return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
-    if not (settings.valkey_url and settings.mail_username and settings.mail_password):
-        raise HTTPException(503, "El servicio de recuperación no está configurado")
+    ip = request.client.host if request.client else "unknown"
+    ip_key = "auth:password-reset:ip:" + hashlib.sha256(ip.encode("utf-8")).hexdigest()
+    if not cache_set_json_if_absent(ip_key, True, RESET_RESEND_TTL):
+        raise HTTPException(429, "Espera un minuto antes de solicitar otra recuperación")
     resend_key = f"{_reset_email_key(correo)}:resend"
-    if cache_get_json(resend_key):
-        raise HTTPException(429, "Espera un minuto antes de solicitar otro código")
-    codigo = f"{secrets.randbelow(100000):05d}"
-    if not cache_set_json(_reset_email_key(correo), {"hash": _reset_code_hash(correo, codigo)}, RESET_CODE_TTL):
-        raise HTTPException(503, "No fue posible iniciar la recuperación")
+    if not cache_set_json_if_absent(resend_key, True, RESET_RESEND_TTL):
+        raise HTTPException(429, "Espera un minuto antes de solicitar otra recuperación")
+    if not (settings.valkey_url and settings.mail_username and settings.mail_password):
+        cache_delete(resend_key)
+        raise HTTPException(503, "El servicio de recuperación no está configurado")
+    user = db.scalar(select(Usuario).where(Usuario.correo == correo))
+    if not user or not _user_active(user):
+        return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
+    codigo = _generate_reset_code()
+    if not cache_set_json(_reset_email_key(correo), {"hash": _reset_code_hash(correo, codigo), "attempts": 0}, RESET_CODE_TTL):
+        cache_delete(resend_key)
+        logger.error("No fue posible almacenar el código de recuperación")
+        return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
     try:
-        _send_password_reset_email(correo, codigo)
-        cache_set_json(resend_key, True, RESET_RESEND_TTL)
-    except Exception as exc:
+        send_password_reset(correo, user.nombres or "", codigo)
+    except Exception:
         cache_delete(_reset_email_key(correo))
+        cache_delete(resend_key)
         logger.exception("No fue posible enviar el código de recuperación")
-        raise HTTPException(502, "No fue posible enviar el correo de recuperación") from exc
+        return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
     return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
 
 
@@ -139,9 +143,11 @@ def complete_password_reset(payload: PasswordResetCompleteRequest, db: Session =
     if not user:
         cache_delete(key)
         raise HTTPException(400, "El código es inválido o venció")
+    available, consumed = cache_pop_json(key)
+    if not available or not isinstance(consumed, dict) or not secrets.compare_digest(str(consumed.get("hash", "")), _reset_code_hash(correo, payload.codigo)):
+        raise HTTPException(400, "El código es inválido o venció")
     user.password = hash_password(payload.nueva_contrasena)
     db.commit()
-    cache_delete(key)
     cache_delete(f"{key}:resend")
     cache_delete(credential_cache_key(correo))
     cache_auth_credentials(correo, user.usuario_id, user.password)
@@ -161,8 +167,15 @@ def _user_data(user: Usuario, role_name: str) -> dict:
         "nombres": user.nombres,
         "apellidos": user.apellidos,
         "telefono": user.telefono,
+        "imagen": user.imagen,
         "rol": role_name,
     }
+
+
+def _schedule_login_notice(background_tasks: BackgroundTasks, user: Usuario, request: Request) -> None:
+    occurred_at = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M %Z")
+    name = f"{user.nombres or ''} {user.apellidos or ''}".strip()
+    background_tasks.add_task(send_login_notice, user.correo, name, occurred_at, request.headers.get("user-agent"), None)
 
 
 def _issue_token(user: Usuario, role_name: str, cached_password_hash: str | None = None) -> dict:
@@ -198,7 +211,7 @@ def _role(db: Session, role_name: str) -> Rol:
 
 
 @router.post("/auth/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, background_tasks: BackgroundTasks, request: Request, db: Session = Depends(get_db)):
     email = str(payload.correo).lower().strip()
     cached_credentials = cache_get_json(credential_cache_key(email))
     user = None
@@ -234,6 +247,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     if not used_cached_credentials and not is_bcrypt_hash(user.password):
         user.password = hash_password(payload.password)
         db.commit()
+    _schedule_login_notice(background_tasks, user, request)
     return _issue_token(
         user,
         role_name,
@@ -297,7 +311,7 @@ def revoke_biometric_device(credential_id: int, user: Usuario = Depends(current_
 
 
 @router.post("/auth/biometric/login")
-def login_biometric(payload: BiometricLoginRequest, db: Session = Depends(get_db)):
+def login_biometric(payload: BiometricLoginRequest, background_tasks: BackgroundTasks, request: Request, db: Session = Depends(get_db)):
     """Verifica el secreto del dispositivo (tras desbloqueo biométrico local) y crea sesión."""
     email = str(payload.correo).strip().lower()
     user = db.scalar(select(Usuario).where(Usuario.correo == email))
@@ -320,23 +334,21 @@ def login_biometric(payload: BiometricLoginRequest, db: Session = Depends(get_db
     if not role or not role.rol:
         raise HTTPException(403, "La cuenta no tiene un rol válido asignado")
     cache_set_json(key, {"secret_hash": stored}, 31536000)
+    _schedule_login_notice(background_tasks, user, request)
     return {**_issue_token(user, str(role.rol)), "auth_method": "device_biometric"}
 
 @router.post("/auth/registro", status_code=201, response_model=UserResponse)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     email = str(payload.correo).lower().strip()
-    if db.scalar(select(Usuario.usuario_id).where(Usuario.correo == email)):
+    if _email_already_registered(db, email):
         raise HTTPException(409, "El correo ya está registrado")
-    if db.scalar(select(Usuario.usuario_id).where(Usuario.telefono == payload.telefono)):
-        raise HTTPException(409, "El teléfono ya está registrado")
     role_name = (payload.rol or "PERSONA_NATURAL").upper()
     role = _role(db, role_name)
-    enabled = role_name == "PERSONA_NATURAL"
     user = Usuario(
         correo=email, password=hash_password(payload.password), nombres=payload.nombres,
         apellidos=payload.apellidos, telefono=payload.telefono, direccion=payload.direccion,
         tipo_identificacion=payload.tipo_identificacion, numero_identificacion=payload.numero_identificacion,
-        rol_id=role.rol_id, is_enabled=enabled, account_non_expired=True,
+        imagen=DEFAULT_USER_IMAGE, rol_id=role.rol_id, is_enabled=True, account_non_expired=True,
         account_non_locked=True, credentials_non_expired=True,
     )
     try:
@@ -348,6 +360,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(409, "No fue posible registrar el usuario; revisa correo, teléfono e identificación") from exc
     cache_auth_user(user, role_name)
     cache_auth_credentials(user.correo, int(user.usuario_id), user.password)
+    company = db.get(Empresa, user.empresa_id) if user.empresa_id else None
+    background_tasks.add_task(send_welcome, email, f"{user.nombres} {user.apellidos}".strip(), role_name, company.razon_social if company else None)
     return user
 
 def _oauth_claims(provider: str, id_token: str) -> dict:
@@ -378,14 +392,14 @@ def _oauth_claims(provider: str, id_token: str) -> dict:
     return claims
 
 @router.post("/auth/google")
-def google_login(payload: OAuthLoginRequest, db: Session = Depends(get_db)):
-    return oauth_login("google", payload, db)
+def google_login(payload: OAuthLoginRequest, background_tasks: BackgroundTasks, request: Request, db: Session = Depends(get_db)):
+    return oauth_login("google", payload, db, background_tasks, request)
 
 @router.post("/auth/apple")
-def apple_login(payload: OAuthLoginRequest, db: Session = Depends(get_db)):
-    return oauth_login("apple", payload, db)
+def apple_login(payload: OAuthLoginRequest, background_tasks: BackgroundTasks, request: Request, db: Session = Depends(get_db)):
+    return oauth_login("apple", payload, db, background_tasks, request)
 
-def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session) -> dict:
+def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session, background_tasks: BackgroundTasks | None = None, request: Request | None = None) -> dict:
     claims = _oauth_claims(provider, payload.id_token)
     email = str(claims["email"]).lower().strip()
     if payload.correo and str(payload.correo).lower().strip() != email:
@@ -397,6 +411,8 @@ def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session) -> dict:
         role = db.get(Rol, user.rol_id) if user.rol_id else None
         if not role or not role.rol:
             raise HTTPException(403, "La cuenta no tiene un rol válido asignado")
+        if background_tasks and request:
+            _schedule_login_notice(background_tasks, user, request)
         return _issue_token(user, str(role.rol))
 
     required = {
@@ -411,14 +427,12 @@ def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session) -> dict:
     missing = [name for name, value in required.items() if value is None or not str(value).strip()]
     if missing:
         raise HTTPException(422, {"mensaje": "Completa los 7 campos obligatorios para finalizar el registro", "campos": missing})
-    if db.scalar(select(Usuario.usuario_id).where(Usuario.telefono == payload.telefono)):
-        raise HTTPException(409, "El teléfono ya está registrado")
     role = _role(db, "PERSONA_NATURAL")
     user = Usuario(
         correo=email, password=hash_password(payload.password), nombres=payload.nombres,
         apellidos=payload.apellidos, telefono=payload.telefono,
         tipo_identificacion=payload.tipo_identificacion, numero_identificacion=payload.numero_identificacion,
-        rol_id=role.rol_id, is_enabled=True, account_non_expired=True,
+        imagen=DEFAULT_USER_IMAGE, rol_id=role.rol_id, is_enabled=True, account_non_expired=True,
         account_non_locked=True, credentials_non_expired=True,
     )
     try:
@@ -428,6 +442,10 @@ def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session) -> dict:
     except Exception as exc:
         db.rollback()
         raise HTTPException(409, "No fue posible finalizar el registro social") from exc
+    if background_tasks:
+        background_tasks.add_task(send_welcome, email, f"{user.nombres} {user.apellidos}".strip(), str(role.rol))
+        if request:
+            _schedule_login_notice(background_tasks, user, request)
     return _issue_token(user, str(role.rol))
 
 
@@ -452,5 +470,5 @@ def catalogs():
         "tiposIdentificacion": ["CC", "CE", "DE", "NIT", "PP", "TE", "TI"],
         "sectores": ["BAR", "CAFE", "CATERING", "HOTEL", "NIGHTCLUB", "RESTAURANT"],
         "rolesRegistro": ["INVITADO", "PERSONA_CONTACTO", "PERSONA_JURIDICA", "PERSONA_NATURAL", "PROVEEDOR"],
-        "nota": "PERSONA_NATURAL se activa automáticamente; los demás roles requieren aprobación administrativa. ADMIN nunca se asigna por registro público.",
+        "nota": "Las cuentas creadas por registro público se activan automáticamente. ADMIN solo puede crearse desde la administración.",
     }

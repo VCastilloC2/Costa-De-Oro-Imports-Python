@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.prediction.artifacts import ModelNotTrainedError, model_store
 from app.prediction.data_handler import load_dataset
 from app.models import Compra
-from app.prediction.model import SalesEnsemble, regression_metrics, train_sales_ensemble
+from app.prediction.model import MODEL_VARIABLES, SalesEnsemble, regression_metrics, train_sales_ensemble
 from app.prediction.preparation import (
     GRANULARITIES, TARGET, aggregate_by_period, build_features, build_history_series,
     clean_transactions, history_signature, load_transactions, prepare_sales_data,
@@ -36,6 +36,17 @@ def _validate_window(years: int, forecast_months: int) -> None:
         raise ValueError("anios debe estar entre 1 y 10")
     if not 0 <= forecast_months <= 12:
         raise ValueError("proyeccion_meses debe estar entre 0 y 12")
+
+
+def _prediction_variables(source: str) -> list[dict[str, str]]:
+    """Stable field catalog for the transaction-level prediction dataset."""
+    source_name = "CSV" if source == "csv" else "MySQL"
+    by_name = {variable["nombre"]: variable for variable in MODEL_VARIABLES}
+    display_order = (
+        "venta_total", "anno", "mes", "dia_semana", "categoria_principal",
+        "ciudad_cliente", "cantidad_productos", "total_unidades", "precio_promedio",
+    )
+    return [{**by_name[name], "fuente": source_name} for name in display_order if name in by_name]
 
 
 def _monthly_forecast(model: SalesEnsemble, data: pd.DataFrame, year: int, month: int) -> float:
@@ -225,6 +236,7 @@ def generate_forecast(
         try:
             neural_result = _forecast_with_trained_tensorflow(db, today, years, forecast_months, source)
             if neural_result is not None:
+                neural_result["variables_prediccion"] = _prediction_variables(source)
                 return neural_result
         except ModelNotTrainedError as exc:
             logger.info("No se usa el modelo TensorFlow activo: %s", exc)
@@ -288,6 +300,7 @@ def generate_forecast(
             "meses_completos": len(history),
         },
         "advertencia_modelo": model_fallback_note,
+        "variables_prediccion": _prediction_variables(source),
         "metricas": {
             "modelo": validation.get("modelo_elegido") if validation else METHOD_NAME,
             "modelos": [f"{METHOD_NAME}_rolling", "naive_estacional_rolling"],

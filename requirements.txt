@@ -8,6 +8,8 @@ PyJWT[crypto]
 pwdlib[argon2]
 bcrypt
 email-validator
+Jinja2
+dnspython
 python-multipart
 cloudinary
 mercadopago
@@ -17,7 +19,7 @@ python-dotenv
 pandas
 numpy
 scikit-learn
-tensorflow>=2.16,<3
+tensorflow>=2.21,<2.23
 redis
 python-dotenv
 webauthn>=2.0,<4

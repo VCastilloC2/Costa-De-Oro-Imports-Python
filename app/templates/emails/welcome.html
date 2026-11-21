@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Bienvenido</title>
+</head>
+
+<body style="margin:0;background:#f8f9fa;font-family:Arial,sans-serif;color:#27272a">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 8px">
+    <tr>
+        <td align="center">
+            <table role="presentation" width="600"
+                   style="max-width:600px;width:100%;background:#fff;border-radius:10px;overflow:hidden">
+                <tr>
+                    <td style="background:#f59e0b;color:#fff;padding:28px;text-align:center">
+                        <h1>¡Bienvenido!</h1>
+                        <p>Costa De Oro Imports</p>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:30px">
+                        <h2>Hola, {{ nombre }}!</h2>
+                        <p>Nos alegra que te unas a Costa De Oro Imports.</p>
+                        <p><strong>Perfil:</strong> {{ tipo_usuario }}</p>{% if empresa %}<p><strong>Empresa
+                        asociada:</strong> {{ empresa }}</p>{% endif %}<p>Ahora puedes explorar nuestro
+                        catálogo, realizar compras para tu negocio, gestionar tus pedidos y recibir ofertas.</p>
+                        <p style="text-align:center;margin:28px"><a href="{{ url_login }}"
+                                                                    style="background:#f59e0b;color:#fff;padding:13px 25px;text-decoration:none;border-radius:5px">Acceder
+                            a la plataforma</a></p>
+                        <p>Si tienes alguna pregunta, contáctanos.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:20px;text-align:center;color:#71717a;font-size:13px">Sistema de Gestión
+                        Integral · Cartagena, Colombia
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+
+</html>

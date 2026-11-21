@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     mail_password: str | None = None
     mail_host: str = Field("smtp.gmail.com", validation_alias=AliasChoices("MAIL_HOST"))
     mail_port: int = Field(587, ge=1, le=65535, validation_alias=AliasChoices("MAIL_PORT"))
+    mail_from: str | None = Field(default=None, validation_alias=AliasChoices("MAIL_FROM"))
+    mail_from_name: str = Field("Costa De Oro Imports", validation_alias=AliasChoices("MAIL_FROM_NAME"))
+    mail_starttls: bool = Field(True, validation_alias=AliasChoices("MAIL_STARTTLS"))
+    mail_ssl_tls: bool = Field(False, validation_alias=AliasChoices("MAIL_SSL_TLS"))
+    frontend_url: str = Field("http://localhost:3000", validation_alias=AliasChoices("FRONTEND_URL"))
     cloud_name: str | None = None
     cloud_api_key: str | None = None
     cloud_api_secret: str | None = None
@@ -80,7 +85,6 @@ class Settings(BaseSettings):
     mercado_pago_access_token: str | None = None
     jwt_secret_ecommerce: str = Field("REPLACE_THIS_SECRET", validation_alias=AliasChoices("JWT_SECRET_ECOMMERCE", "JWT_SECRET"))
     jwt_issuer_ecommerce: str = "CostaDeOroImports"
-    frontend_url: str = "http://localhost:3000"
     cors_allowed_origins: str = "http://localhost:3000,http://localhost:8080,https://costa-de-oro-imports-python.onrender.com,https://costa-de-oro-imports-python-vatg.vercel.app"
     springdoc_api_docs_enabled: bool = True
     springdoc_swagger_ui_enabled: bool = True

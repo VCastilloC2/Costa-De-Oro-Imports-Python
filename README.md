@@ -1,13 +1,12 @@
 # Costa De Oro Imports — migración FastAPI
 
 ## Instalar (Windows)
+El proyecto usa Python 3.13 y TensorFlow 2.21 o 2.22 (`requirements.txt`).
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-# Tener un certificado ssl en https
-python generar_cert.py
 Copy-Item .env.example .env
 # Completa DB_URL, DB_USERNAME, DB_PASSWORD y secretos de proveedores
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

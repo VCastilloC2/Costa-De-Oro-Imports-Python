@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Inicio de sesión</title>
+</head>
+
+<body style="margin:0;background:#f8f9fa;font-family:Arial,sans-serif;color:#27272a">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 8px">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="600"
+                    style="max-width:600px;width:100%;background:#fff;border-radius:10px;overflow:hidden">
+                    <tr>
+                        <td style="background:#18181b;color:#fff;padding:25px;text-align:center">
+                            <h1>Inicio de sesión exitoso</h1>
+                            <p>Costa De Oro Imports</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:30px">
+                            <h2>Hola, {{ nombre }}!</h2>
+                            <p>Se registró un inicio de sesión en tu cuenta:</p>
+                            <table role="presentation" width="100%" style="background:#f0f3f2;padding:15px">
+                                <tr>
+                                    <td><strong>Fecha y hora:</strong> {{ fecha }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Dispositivo:</strong> {{ dispositivo }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Ubicación aproximada:</strong> {{ ubicacion }}</td>
+                                </tr>
+                            </table>
+                            <p>Si reconoces esta actividad, no necesitas hacer nada.</p>
+                            <p><strong>¿No la reconoces?</strong> Cambia tu contraseña, revisa la actividad reciente y
+                                contacta con soporte si necesitas ayuda.</p>
+                            <p>Usa contraseñas seguras, no compartas tus credenciales y cierra sesión en dispositivos
+                                públicos.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:20px;text-align:center;color:#71717a;font-size:13px">Sistema de Gestión
+                            Integral · Cartagena, Colombia</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

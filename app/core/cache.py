@@ -167,6 +167,18 @@ def cache_set_json(key: str, value: Any, ttl: int | None = None) -> bool:
         return False
 
 
+def cache_set_json_if_absent(key: str, value: Any, ttl: int) -> bool:
+    """Atomically create a short-lived cache value only when the key is absent."""
+    client = get_cache_client()
+    if client is None:
+        return False
+    try:
+        return bool(client.set(key, json.dumps(value, separators=(",", ":")), ex=ttl, nx=True))
+    except Exception:
+        logger.warning("Valkey no disponible al aplicar un límite de frecuencia", exc_info=True)
+        return False
+
+
 def cache_pop_json(key: str) -> tuple[bool, Any | None]:
     """Lee y borra la clave de forma atómica (GETDEL): valores de un solo uso.
 

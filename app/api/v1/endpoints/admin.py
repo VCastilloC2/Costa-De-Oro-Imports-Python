@@ -66,8 +66,6 @@ def create_admin_user(
     email = str(payload.correo).lower().strip()
     if db.scalar(select(Usuario.usuario_id).where(Usuario.correo == email)):
         raise HTTPException(409, "El correo ya está registrado")
-    if payload.telefono and db.scalar(select(Usuario.usuario_id).where(Usuario.telefono == payload.telefono)):
-        raise HTTPException(409, "El teléfono ya está registrado")
     role = db.scalar(select(Rol).where(Rol.rol == "ADMIN"))
     if not role:
         raise HTTPException(409, "No existe el rol ADMIN en la base de datos")

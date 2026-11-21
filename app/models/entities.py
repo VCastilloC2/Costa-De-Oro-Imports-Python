@@ -33,7 +33,7 @@ class Usuario(Base):
     empresa_id: Mapped[int|None]=mapped_column(ForeignKey("empresa.empresa_id"), unique=True)
     rol_id: Mapped[int|None]=mapped_column(ForeignKey("rol.rol_id"))
     numero_identificacion: Mapped[str|None]=mapped_column(String(15))
-    telefono: Mapped[str|None]=mapped_column(String(20), unique=True)
+    telefono: Mapped[str|None]=mapped_column(String(20))
     correo: Mapped[str]=mapped_column(String(100), unique=True, nullable=False)
     direccion: Mapped[str|None]=mapped_column(String(100))
     password: Mapped[str|None]=mapped_column(String(100))
