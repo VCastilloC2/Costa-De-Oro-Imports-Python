@@ -1,15 +1,26 @@
-
 [
   {
     "relation": [
+      "delegate_permission/common.handle_all_urls",
       "delegate_permission/common.get_login_creds"
     ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.example.costa_de_oro_imports",
       "sha256_cert_fingerprints": [
-        "7D:23:A6:86:7C:AA:B5:73:C2:9D:E8:48:B9:C7:D8:CB:18:3F:7E:A5:A5:C0:1E:86:36:E9:B9:8F:D6:F5:19:4D"
+        "7D:23:A6:86:7C:AA:B5:73:C2:9D:E8:48:B9:C7:D8:CB:18:3F:7E:A5:A5:C0:1E:86:36:E9:B9:8F:D6:F5:19:4D",
+        "D7:92:22:90:27:39:E5:58:45:2C:0F:BB:BC:39:C7:A0:11:4F:18:27:36:9F:52:A7:F5:C7:4F:74:BB:C9:01:46"
       ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "web",
+      "site": "https://costa-de-oro-imports-python.onrender.com"
     }
   }
 ]
