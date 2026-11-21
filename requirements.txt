@@ -23,4 +23,4 @@ tensorflow>=2.21,<2.23
 redis
 python-dotenv
 webauthn>=2.0,<4
-valkey>=6.0
+valkey
