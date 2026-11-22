@@ -1,16 +1,13 @@
-"""Transactional email rendering, address-domain checks, and SMTP delivery."""
+"""Transactional email rendering and delivery through the Resend HTTPS API."""
 from __future__ import annotations
 
 import logging
-import smtplib
-import ssl
 from datetime import datetime, timedelta, timezone
-from email.message import EmailMessage
-from email.utils import formataddr
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import EmailStr, TypeAdapter
+import resend
 
 from app.core.config import settings
 
@@ -87,46 +84,42 @@ def render_email(template: str, **context: object) -> str:
 
 
 def send_email(to: str, subject: str, html: str, text: str) -> None:
-    if not settings.mail_username or not settings.mail_password or not settings.mail_host:
-        raise RuntimeError("SMTP no está configurado")
+    if not settings.resend_api_key:
+        raise RuntimeError("RESEND_API_KEY no está configurada")
+    if not settings.mail_from:
+        raise RuntimeError("MAIL_FROM no está configurado")
     to = str(_email_adapter.validate_python(to))
-    if not validate_email_domain(to):
-        raise ValueError("El dominio del destinatario no publica registros de recepción de correo")
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = formataddr((settings.mail_from_name, settings.mail_from or settings.mail_username))
-    message["To"] = to
-    message.set_content(text)
-    message.add_alternative(html, subtype="html")
+    resend.api_key = settings.resend_api_key
     try:
-        if settings.mail_ssl_tls:
-            with smtplib.SMTP_SSL(settings.mail_host, settings.mail_port, timeout=10, context=ssl.create_default_context()) as smtp:
-                smtp.login(settings.mail_username, settings.mail_password)
-                refused = smtp.send_message(message)
+        result = resend.Emails.send({
+            "from": settings.mail_from,
+            "to": [to],
+            "subject": subject,
+            "html": html,
+            "text": text,
+        })
+        # The SDK raises ResendError for HTTP/API failures. Guard against unexpected
+        # response shapes so a failed request is never reported as delivered.
+        if not result or not (result.get("id") if isinstance(result, dict) else getattr(result, "id", None)):
+            raise RuntimeError("Resend no confirmó la aceptación del correo")
+    except Exception as exc:
+        error_code = getattr(exc, "code", None)
+        try:
+            status = int(getattr(exc, "status_code", None) or error_code)
+        except (TypeError, ValueError):
+            status = None
+        error_type = str(getattr(exc, "error_type", "") or "").lower()
+        error_name = type(exc).__name__.lower()
+        if status == 401 or "api_key" in error_type or "api_key" in error_name or "unauthorized" in error_type:
+            logger.error("Resend rechazó la autenticación (HTTP %s)", status or "desconocido")
+        elif status == 429 or "rate" in error_type or "rate" in error_name:
+            logger.warning("Resend alcanzó el límite de envío (HTTP %s)", status or "desconocido")
+        elif status in (400, 422) or "recipient" in error_type or "email_invalid" in error_type:
+            logger.warning("Resend rechazó los datos del correo (HTTP %s)", status or "desconocido")
+        elif isinstance(exc, (OSError, TimeoutError, ConnectionError)):
+            logger.warning("Error de conexión HTTPS con Resend: %s", type(exc).__name__)
         else:
-            with smtplib.SMTP(settings.mail_host, settings.mail_port, timeout=10) as smtp:
-                smtp.ehlo()
-                if settings.mail_starttls:
-                    smtp.starttls(context=ssl.create_default_context())
-                    smtp.ehlo()
-                smtp.login(settings.mail_username, settings.mail_password)
-                refused = smtp.send_message(message)
-        if refused:
-            raise smtplib.SMTPRecipientsRefused(refused)
-    except smtplib.SMTPRecipientsRefused:
-        logger.warning("El servidor SMTP rechazó el destinatario")
-        raise
-    except smtplib.SMTPAuthenticationError:
-        logger.error("Falló la autenticación del servidor SMTP")
-        raise
-    except smtplib.SMTPServerDisconnected:
-        logger.exception(
-            "El servidor SMTP cerró la conexión durante el envío; verifica MAIL_HOST, MAIL_PORT, "
-            "MAIL_STARTTLS/MAIL_SSL_TLS y las credenciales SMTP (sin registrar la contraseña)"
-        )
-        raise
-    except (smtplib.SMTPException, OSError, TimeoutError):
-        logger.exception("Falló el envío SMTP")
+            logger.error("Falló el envío mediante Resend (HTTP %s, tipo %s)", status or "desconocido", type(exc).__name__)
         raise
 
 

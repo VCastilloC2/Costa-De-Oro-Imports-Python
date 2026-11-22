@@ -42,6 +42,15 @@ def test_login_with_email_and_bcrypt_returns_jwt(client, db_session, seeded_role
     assert verify_password("Correcta-Password-123", stored)
 
 
+def test_login_succeeds_when_resend_login_notice_fails(client, db_session, seeded_roles, monkeypatch):
+    from app.services import email_service
+
+    _create_user(db_session)
+    monkeypatch.setattr(email_service, "send_email", lambda *_: (_ for _ in ()).throw(RuntimeError("Resend unavailable")))
+    response = client.post("/auth/login", json={"correo": "persona@example.com", "password": "Correcta-Password-123"})
+    assert response.status_code == 200
+
+
 def test_login_warms_jwt_session_cache(client, db_session, seeded_roles, monkeypatch):
     _create_user(db_session)
     writes = []
@@ -93,6 +102,18 @@ def test_direct_registration_stores_bcrypt_hash(client, db_session, seeded_roles
     assert response.status_code == 201
     user = db_session.scalar(select(Usuario).where(Usuario.correo == "luis@example.com"))
     assert user.password.startswith("$2a$")
+
+
+def test_registration_succeeds_when_resend_welcome_fails(client, db_session, seeded_roles, monkeypatch):
+    from app.services import email_service
+
+    monkeypatch.setattr(email_service, "send_email", lambda *_: (_ for _ in ()).throw(RuntimeError("Resend unavailable")))
+    response = client.post("/auth/registro", json={
+        "tipoIdentificacion": "CC", "numeroIdentificacion": "987654322", "nombres": "Luis",
+        "apellidos": "Cliente", "telefono": "3005550002", "correo": "luis2@example.com",
+        "password": "Nueva-clave-123",
+    })
+    assert response.status_code == 201
 
 
 @pytest.mark.parametrize("provider", ["google", "apple"])

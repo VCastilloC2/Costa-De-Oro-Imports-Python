@@ -58,14 +58,8 @@ class Settings(BaseSettings):
     remember_me_token: str | None = None
     password_url_recaptcha: str = "https://www.google.com/recaptcha/api/siteverify"
     password_key_recaptcha: str | None = None
-    mail_username: str | None = None
-    mail_password: str | None = None
-    mail_host: str = Field("smtp.gmail.com", validation_alias=AliasChoices("MAIL_HOST"))
-    mail_port: int = Field(587, ge=1, le=65535, validation_alias=AliasChoices("MAIL_PORT"))
+    resend_api_key: str | None = Field(default=None, validation_alias=AliasChoices("RESEND_API_KEY"))
     mail_from: str | None = Field(default=None, validation_alias=AliasChoices("MAIL_FROM"))
-    mail_from_name: str = Field("Costa De Oro Imports", validation_alias=AliasChoices("MAIL_FROM_NAME"))
-    mail_starttls: bool = Field(True, validation_alias=AliasChoices("MAIL_STARTTLS"))
-    mail_ssl_tls: bool = Field(False, validation_alias=AliasChoices("MAIL_SSL_TLS"))
     frontend_url: str = Field("http://localhost:3000", validation_alias=AliasChoices("FRONTEND_URL"))
     cloud_name: str | None = None
     cloud_api_key: str | None = None

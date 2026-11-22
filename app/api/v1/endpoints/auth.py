@@ -104,7 +104,7 @@ def request_password_reset(payload: PasswordResetRequest, request: Request, db: 
     resend_key = f"{_reset_email_key(correo)}:resend"
     if not cache_set_json_if_absent(resend_key, True, RESET_RESEND_TTL):
         raise HTTPException(429, "Espera un minuto antes de solicitar otra recuperación")
-    if not (settings.valkey_url and settings.mail_username and settings.mail_password):
+    if not (settings.valkey_url and settings.resend_api_key and settings.mail_from):
         cache_delete(resend_key)
         raise HTTPException(503, "El servicio de recuperación no está configurado")
     user = db.scalar(select(Usuario).where(Usuario.correo == correo))
@@ -114,14 +114,14 @@ def request_password_reset(payload: PasswordResetRequest, request: Request, db: 
     if not cache_set_json(_reset_email_key(correo), {"hash": _reset_code_hash(correo, codigo), "attempts": 0}, RESET_CODE_TTL):
         cache_delete(resend_key)
         logger.error("No fue posible almacenar el código de recuperación")
-        return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
+        raise HTTPException(503, "No fue posible preparar la recuperación. Inténtalo de nuevo más tarde.")
     try:
         send_password_reset(correo, user.nombres or "", codigo)
     except Exception:
         cache_delete(_reset_email_key(correo))
         cache_delete(resend_key)
         logger.exception("No fue posible enviar el código de recuperación")
-        return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
+        raise HTTPException(502, "No fue posible enviar el correo de recuperación. Inténtalo de nuevo más tarde.")
     return {"mensaje": "Si el correo está registrado, recibirás un código de recuperación."}
 
 

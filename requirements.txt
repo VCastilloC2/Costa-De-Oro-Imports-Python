@@ -9,6 +9,7 @@ pwdlib[argon2]
 bcrypt
 email-validator
 Jinja2
+resend>=2.46.0,<3
 dnspython
 python-multipart
 cloudinary
