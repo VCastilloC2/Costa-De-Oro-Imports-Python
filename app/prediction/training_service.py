@@ -24,7 +24,9 @@ from app.prediction.evaluation import ACCURACY_BASIS, comparison_rows, regressio
 from app.prediction.preparation import (
     TARGET, PreparationResult, history_signature, load_transactions, prepare_sales_data,
 )
-from app.prediction.repository import HistoryUnavailableError, register_model, save_evaluation
+from app.prediction.repository import (
+    HistoryUnavailableError, fail_model_version, register_model, reserve_model_version, save_evaluation,
+)
 from app.prediction.tf_model import (
     ARCHITECTURE, MODEL_NAME, TrainingConfig, build_sales_network, fit_network, predict_scaled,
     tensorflow_version,
@@ -155,6 +157,8 @@ class TrainingService:
 
     def _run(self, job_id: str, prepared: PreparationResult, params: TrainingParams, requested_by: dict,
              session_factory: Callable[[], Session]) -> None:
+        version = None
+        registered = False
         self._update(status="running", started_at=_iso(datetime.now()))
         try:
             transformer = SalesTensorTransformer(prepared.feature_names, prepared.target)
@@ -172,7 +176,11 @@ class TrainingService:
             evaluated_at = datetime.now()
             metrics = regression_report(actual, predicted)
 
-            version = self.store.next_version(prepared.granularity)
+            with session_factory() as session:
+                version = reserve_model_version(
+                    session, prepared.granularity, requested_by.get("user_id"),
+                    minimum_version=self.store.next_version(prepared.granularity),
+                )
             splits = prepared.splits
             metadata = {
                 "nombre": MODEL_NAME,
@@ -230,10 +238,14 @@ class TrainingService:
             with session_factory() as session:
                 try:
                     register_model(session, metadata, requested_by.get("user_id"))
+                    registered = True
                     save_evaluation(session, "PRELIMINAR", prepared.granularity, version, metrics,
                                     metadata["metricas_preliminares"]["comparacion"])
                 except HistoryUnavailableError as exc:
                     registry_warning = str(exc)
+            if not registered:
+                with session_factory() as session:
+                    fail_model_version(session, prepared.granularity, version)
             self._update(
                 status="completed", finished_at=_iso(datetime.now()), model_version=version,
                 result={
@@ -249,6 +261,12 @@ class TrainingService:
             logger.info("Entrenamiento %s completado: %s v%s", job_id, prepared.granularity, version)
         except Exception as exc:  # noqa: BLE001 - se informa en el estado del job
             logger.exception("Entrenamiento %s fallido", job_id)
+            if version is not None and not registered:
+                try:
+                    with session_factory() as session:
+                        fail_model_version(session, prepared.granularity, version)
+                except Exception:
+                    logger.exception("No se pudo marcar fallida la versión reservada del modelo")
             self._update(status="failed", finished_at=_iso(datetime.now()), error=f"{type(exc).__name__}: {exc}")
         finally:
             self.store.release_training_lock(job_id)

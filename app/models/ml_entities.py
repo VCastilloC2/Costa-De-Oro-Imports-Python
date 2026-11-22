@@ -21,7 +21,7 @@ class PrediccionModelo(Base):
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     granularidad: Mapped[str] = mapped_column(String(20), nullable=False)
-    estado: Mapped[str] = mapped_column(String(20), nullable=False)  # ACTIVO | INACTIVO | FALLIDO
+    estado: Mapped[str] = mapped_column(String(20), nullable=False)  # ENTRENANDO | ACTIVO | INACTIVO | FALLIDO
     fecha_entrenamiento: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     epocas_ejecutadas: Mapped[int | None] = mapped_column(Integer)
     loss_entrenamiento: Mapped[float | None] = mapped_column(Float)

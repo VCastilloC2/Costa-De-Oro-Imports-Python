@@ -8,8 +8,8 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func, insert, select, text, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -53,7 +53,16 @@ def loads(value: str | None, default=None):
 def _fail(db: Session, exc: Exception):
     db.rollback()
     logger.warning("Operación sobre tablas de predicción fallida: %s", exc)
-    raise HistoryUnavailableError(MISSING_TABLES_MESSAGE) from exc
+    original = getattr(exc, "orig", None)
+    args = getattr(original, "args", ())
+    code = args[0] if args else None
+    if code == 1062:
+        message = "La base de datos ya contiene esa versión del modelo; vuelve a consultar las versiones disponibles."
+    elif code == 1146:
+        message = MISSING_TABLES_MESSAGE
+    else:
+        message = "No fue posible guardar el historial de predicciones por un error de base de datos."
+    raise HistoryUnavailableError(message) from exc
 
 
 # --------------------------------------------------------------------------- modelos
@@ -63,28 +72,106 @@ def register_model(db: Session, metadata: dict, user_id: int | None) -> int | No
     training = metadata.get("entrenamiento") or {}
     prep = metadata.get("preparacion") or {}
     try:
+        row = db.scalar(select(PrediccionModelo).where(
+            PrediccionModelo.granularidad == metadata["granularidad"],
+            PrediccionModelo.version == metadata["version"],
+        ).with_for_update())
+        if row is None or row.estado != "ENTRENANDO":
+            raise RuntimeError("La versión del modelo no tiene una reserva activa en la base de datos")
         db.execute(update(PrediccionModelo)
                    .where(PrediccionModelo.granularidad == metadata["granularidad"],
-                          PrediccionModelo.estado == "ACTIVO")
+                          PrediccionModelo.estado == "ACTIVO",
+                          PrediccionModelo.modelo_id != row.modelo_id)
                    .values(estado="INACTIVO"))
-        row = PrediccionModelo(
-            nombre=metadata["nombre"], version=metadata["version"], granularidad=metadata["granularidad"],
-            estado="ACTIVO", fecha_entrenamiento=datetime.fromisoformat(metadata["fecha_entrenamiento"]),
-            epocas_ejecutadas=training.get("epocas_ejecutadas"),
-            loss_entrenamiento=training.get("loss_entrenamiento_final"),
-            loss_validacion=training.get("loss_validacion_final"),
-            mae=metrics.get("mae"), mse=metrics.get("mse"), rmse=metrics.get("rmse"),
-            mape=metrics.get("mape_percentage"), porcentaje_acierto=metrics.get("accuracy_percentage"),
-            muestras_entrenamiento=prep.get("registros_entrenamiento"),
-            muestras_validacion=prep.get("registros_validacion"),
-            muestras_prueba=prep.get("registros_prueba"),
-            fuente_datos=prep.get("fuente_datos"), ruta_artefactos=metadata.get("ruta_artefactos"),
-            resumen_json=dumps({"preparacion": prep, "entrenamiento": {k: v for k, v in training.items() if k != "historial"}}),
-            usuario_id=user_id,
-        )
-        db.add(row)
+        row.nombre = metadata["nombre"]
+        row.estado = "ACTIVO"
+        row.fecha_entrenamiento = datetime.fromisoformat(metadata["fecha_entrenamiento"])
+        row.epocas_ejecutadas = training.get("epocas_ejecutadas")
+        row.loss_entrenamiento = training.get("loss_entrenamiento_final")
+        row.loss_validacion = training.get("loss_validacion_final")
+        row.mae, row.mse, row.rmse = metrics.get("mae"), metrics.get("mse"), metrics.get("rmse")
+        row.mape = metrics.get("mape_percentage")
+        row.porcentaje_acierto = metrics.get("accuracy_percentage")
+        row.muestras_entrenamiento = prep.get("registros_entrenamiento")
+        row.muestras_validacion = prep.get("registros_validacion")
+        row.muestras_prueba = prep.get("registros_prueba")
+        row.fuente_datos = prep.get("fuente_datos")
+        row.ruta_artefactos = metadata.get("ruta_artefactos")
+        row.resumen_json = dumps({"preparacion": prep, "entrenamiento": {k: v for k, v in training.items() if k != "historial"}})
+        row.usuario_id = user_id
         db.commit()
         return int(row.modelo_id)
+    except SQLAlchemyError as exc:
+        _fail(db, exc)
+
+
+def reserve_model_version(db: Session, granularity: str, user_id: int | None,
+                          minimum_version: int = 1) -> int:
+    """Reserve a globally unique version before writing model artifacts.
+
+    MySQL's advisory lock serializes version allocation across Render instances,
+    whose local filesystems and file locks are not shared. The unique index remains
+    the final integrity guard.
+    """
+    lock_name = f"cdo_prediction_model_{granularity}"
+    connection = db.get_bind().connect()
+    acquired = False
+    try:
+        if connection.dialect.name == "mysql":
+            acquired = connection.execute(
+                text("SELECT GET_LOCK(:lock_name, 30)"), {"lock_name": lock_name}
+            ).scalar_one() == 1
+            connection.commit()
+            if not acquired:
+                raise TimeoutError(f"No se pudo reservar una versión de modelo para {granularity}")
+
+        last_conflict = None
+        for _ in range(5):
+            current = connection.execute(
+                select(func.max(PrediccionModelo.version)).where(
+                    PrediccionModelo.granularidad == granularity
+                )
+            ).scalar_one()
+            next_version = max(int(current or 0) + 1, int(minimum_version))
+            try:
+                connection.execute(insert(PrediccionModelo).values(
+                    nombre="TensorFlow Sales Prediction",
+                    version=next_version,
+                    granularidad=granularity,
+                    estado="ENTRENANDO",
+                    fecha_entrenamiento=now(),
+                    usuario_id=user_id,
+                ))
+                connection.commit()
+                return next_version
+            except IntegrityError as exc:
+                # Handles an older deployment that does not yet use the shared DB lock.
+                connection.rollback()
+                last_conflict = exc
+        if last_conflict is not None:
+            _fail(db, last_conflict)
+    except SQLAlchemyError as exc:
+        connection.rollback()
+        _fail(db, exc)
+    finally:
+        if acquired:
+            try:
+                connection.execute(text("SELECT RELEASE_LOCK(:lock_name)"), {"lock_name": lock_name})
+                connection.commit()
+            except SQLAlchemyError:
+                connection.rollback()
+        connection.close()
+
+
+def fail_model_version(db: Session, granularity: str, version: int) -> None:
+    """Mark a reserved version as failed without changing the current active model."""
+    try:
+        db.execute(update(PrediccionModelo)
+                   .where(PrediccionModelo.granularidad == granularity,
+                          PrediccionModelo.version == version,
+                          PrediccionModelo.estado == "ENTRENANDO")
+                   .values(estado="FALLIDO"))
+        db.commit()
     except SQLAlchemyError as exc:
         _fail(db, exc)
 

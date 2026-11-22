@@ -83,6 +83,18 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
    `database` evita usar el CSV de respaldo. Comprueba `preparation.fuente_datos` y `fin_historia`.
 5. Genera predicciones: `POST /api/v1/predictions/generate`.
 
+#### Render y otros despliegues con disco efímero
+
+La versión del modelo se reserva en MySQL bajo un bloqueo asesor por granularidad antes de guardar
+los artefactos. Así, un reinicio o dos instancias no intentan registrar nuevamente la misma pareja
+`granularidad/version`. Si los archivos locales se pierden, el arranque puede entrenar una nueva versión;
+eso evita el conflicto de base de datos, pero consume CPU y tiempo de inicio. Para reutilizar los mismos
+pesos entre despliegues, configura `PREDICTION_MODEL_DIR` hacia almacenamiento persistente disponible
+en tu plataforma. En Render Free el sistema de archivos no es persistente.
+
+Los mensajes de CUDA indican que TensorFlow detectó una instancia sin GPU; el servicio fuerza el modo
+CPU. La información de oneDNN describe optimizaciones de CPU y no indica que el entrenamiento haya fallado.
+
 500 es el máximo, no una obligación de ejecutar todas las épocas: EarlyStopping restaura los mejores pesos
 cuando la pérdida de validación deja de mejorar. Volver a entrenar en cada consulta sin cambios en MySQL
 añadiría latencia y riesgo de sobreajuste; la firma de la serie evita esos entrenamientos repetidos.
