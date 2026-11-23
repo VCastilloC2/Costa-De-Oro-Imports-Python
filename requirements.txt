@@ -17,7 +17,7 @@ dnspython
 python-multipart
 cloudinary
 mercadopago
-google-genai
+google-genai>=2.3,<3
 alembic
 python-dotenv
 pandas

@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     cloud_api_key: str | None = None
     cloud_api_secret: str | None = None
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = Field("gemini-3.5-flash-lite", validation_alias=AliasChoices("GEMINI_MODEL"))
     # --- Gemini: cliente compartido, límites y asistentes ---
     gemini_timeout_seconds: float = Field(30.0, ge=5, le=300, validation_alias=AliasChoices("GEMINI_TIMEOUT_SECONDS"))
     gemini_max_retries: int = Field(2, ge=0, le=5, validation_alias=AliasChoices("GEMINI_MAX_RETRIES"))

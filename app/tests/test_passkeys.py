@@ -44,7 +44,7 @@ def test_android_origins_are_derived_from_all_published_signing_certificates(mon
     ]
 
 
-def test_assetlinks_is_public_json_with_only_credential_sharing(monkeypatch, client):
+def test_assetlinks_is_public_json_for_android_passkey_association(monkeypatch, client):
     monkeypatch.setattr(settings, "passkey_rp_id", "costa-de-oro-imports-python.onrender.com")
     monkeypatch.setattr(settings, "passkey_android_package_name", "com.example.costa_de_oro_imports")
     monkeypatch.setattr(settings, "passkey_android_sha256_fingerprints",
@@ -55,7 +55,10 @@ def test_assetlinks_is_public_json_with_only_credential_sharing(monkeypatch, cli
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
     assert "location" not in response.headers
-    assert body[0]["relation"] == ["delegate_permission/common.get_login_creds"]
+    assert body[0]["relation"] == [
+        "delegate_permission/common.handle_all_urls",
+        "delegate_permission/common.get_login_creds",
+    ]
     assert body[0]["target"]["package_name"] == "com.example.costa_de_oro_imports"
     assert body[0]["target"]["sha256_cert_fingerprints"] == [
         "7D:23:A6:86:7C:AA:B5:73:C2:9D:E8:48:B9:C7:D8:CB:18:3F:7E:A5:A5:C0:1E:86:36:E9:B9:8F:D6:F5:19:4D"

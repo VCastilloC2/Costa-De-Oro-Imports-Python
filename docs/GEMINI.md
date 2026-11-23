@@ -1,6 +1,6 @@
 # Asistentes con Gemini
 
-La API usa Google Gemini (`google-genai`) en dos asistentes que comparten un mismo cliente:
+La API usa Google Gemini AI Studio con el SDK `google-genai` y la Interactions API en dos asistentes que comparten un mismo cliente. El modelo predeterminado es `gemini-3.5-flash-lite`, una opción Flash-Lite para consultas rápidas y de menor consumo. La capa gratis tiene límites de uso que Google puede cambiar; revisa el consumo y la cuota de tu proyecto en AI Studio.
 
 | Asistente | Endpoint | Quién | Datos que ve Gemini |
 |---|---|---|---|
@@ -20,7 +20,7 @@ La API usa Google Gemini (`google-genai`) en dos asistentes que comparten un mis
 
 ```env
 GEMINI_API_KEY=                     # obligatorio; sin él los endpoints responden 503
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_TIMEOUT_SECONDS=30           # tiempo máximo por intento
 GEMINI_MAX_RETRIES=2                # reintentos con espera exponencial ante 408/429/5xx
 GEMINI_MAX_OUTPUT_TOKENS=800        # chat administrativo
@@ -32,6 +32,8 @@ SHOP_ASSISTANT_DAILY_LIMIT=2000           # global por día (controla el costo)
 SHOP_ASSISTANT_MAX_OUTPUT_TOKENS=500
 ```
 
+Obtén una clave en [Google AI Studio](https://aistudio.google.com/app/apikey) y colócala en `GEMINI_API_KEY` en tu archivo `.env`. No la incluyas en Flutter ni la subas a Git. `google-genai>=2.3` es necesario para `client.interactions.create`. Las solicitudes usan `store=false` para no guardar conversaciones en Interactions; el contexto de chat sigue enviándose desde la API.
+
 Sin `VALKEY_URL`, las cachés se desactivan y los límites se cuentan en la memoria de cada proceso.
 
 ## 2. Endpoints
@@ -41,7 +43,7 @@ Sin `VALKEY_URL`, las cachés se desactivan y los límites se cuentan en la memo
 Muestra la configuración y no consume tokens. Nunca devuelve la clave.
 
 ```json
-{ "configured": true, "model": "gemini-3.8-flash", "timeout_seconds": 30.0, "max_retries": 2,
+{ "configured": true, "model": "gemini-3.5-flash-lite", "timeout_seconds": 30.0, "max_retries": 2,
   "context_cache_seconds": 60, "admin_rate_limit_per_minute": 20, "shop_assistant_enabled": true,
   "shop_rate_limit_per_minute": 10, "shop_daily_limit": 2000 }
 ```
@@ -59,7 +61,7 @@ Entrada (`history`: hasta 12 turnos, `role` = `user` o `model`):
 Salida (los campos nuevos son opcionales; `answer`, `model` y `source` no cambian):
 
 ```json
-{ "answer": "Los productos con menos stock son…", "model": "gemini-3.8-flash", "source": "database",
+{ "answer": "Los productos con menos stock son…", "model": "gemini-3.5-flash-lite", "source": "database",
   "context_cached": true, "finish_reason": "STOP",
   "usage": { "prompt_tokens": 1450, "output_tokens": 120, "total_tokens": 1570 } }
 ```
@@ -68,7 +70,7 @@ Salida (los campos nuevos son opcionales; `answer`, `model` y `source` no cambia
 
 ### `GET /api/asistente/status` (público)
 
-`{ "available": true, "model": "gemini-3.8-flash" }`. La app puede ocultar el botón del asistente si `available` es `false`.
+`{ "available": true, "model": "gemini-3.5-flash-lite" }`. La app puede ocultar el botón del asistente si `available` es `false`.
 
 ### `POST /api/asistente/chat` (público)
 
@@ -83,7 +85,7 @@ Salida: `productos` trae los artículos del catálogo que la respuesta menciona 
 ```json
 {
   "answer": "Te recomiendo Johnnie Walker Double Black (COP 180.000)…",
-  "model": "gemini-3.8-flash",
+  "model": "gemini-3.5-flash-lite",
   "source": "catalog",
   "productos": [
     { "producto_id": 1, "nombre": "Johnnie Walker Double Black", "precio": 180000.0,

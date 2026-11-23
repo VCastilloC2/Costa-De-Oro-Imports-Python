@@ -1,4 +1,4 @@
-"""Cliente compartido de Gemini (google-genai) para todos los asistentes de la API.
+"""Cliente compartido de Gemini Interactions API (google-genai) para asistentes.
 
 * Un único ``genai.Client`` por clave de API (se reutilizan conexiones HTTP).
 * Tiempo máximo por petición (``GEMINI_TIMEOUT_SECONDS``) y reintentos automáticos del SDK con
@@ -19,7 +19,6 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 RETRYABLE_STATUS = [408, 429, 500, 502, 503, 504]
-BLOCKED_REASONS = {"SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "RECITATION", "IMAGE_SAFETY"}
 
 
 class GeminiNotConfigured(Exception):
@@ -76,12 +75,6 @@ def get_client() -> genai.Client:
         return client
 
 
-def _enum_name(value) -> str | None:
-    if value is None:
-        return None
-    return getattr(value, "name", None) or str(value)
-
-
 def generate(
     *,
     system_instruction: str,
@@ -92,14 +85,25 @@ def generate(
     client = get_client()
     model = settings.gemini_model
     try:
-        response = client.models.generate_content(
+        # Interactions API acepta input de texto. Serializamos los turnos para
+        # conservar el historial que el contrato actual ya recibe desde Flutter.
+        conversation = []
+        for content in contents:
+            role = "Usuario" if content.role == "user" else "Asistente"
+            text = " ".join(part.text for part in (content.parts or []) if part.text)
+            if text:
+                conversation.append(f"{role}: {text}")
+        response = client.interactions.create(
             model=model,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=temperature,
-                max_output_tokens=max_output_tokens or settings.gemini_max_output_tokens,
-            ),
+            input="\n".join(conversation),
+            system_instruction=system_instruction,
+            generation_config={
+                "temperature": temperature,
+                "max_output_tokens": max_output_tokens or settings.gemini_max_output_tokens,
+                "thinking_level": "low",
+            },
+            # No guardar datos del negocio en los registros de interacciones.
+            store=False,
         )
     except errors.ClientError as exc:
         logger.warning("Gemini rechazó la petición (HTTP %s): %s", exc.code, exc)
@@ -112,24 +116,15 @@ def generate(
         logger.exception("Gemini no respondió")
         raise GeminiProviderError("El asistente no está disponible en este momento", 502) from exc
 
-    feedback = getattr(response, "prompt_feedback", None)
-    if feedback is not None and getattr(feedback, "block_reason", None):
-        raise GeminiBlockedError("La consulta fue bloqueada por los filtros de seguridad.")
-    candidates = getattr(response, "candidates", None) or []
-    finish_reason = _enum_name(getattr(candidates[0], "finish_reason", None)) if candidates else None
-    if finish_reason in BLOCKED_REASONS:
-        raise GeminiBlockedError("La respuesta fue bloqueada por los filtros de seguridad.")
-    try:
-        text = (response.text or "").strip()
-    except Exception:  # noqa: BLE001 - .text falla si no hay partes de texto
-        text = ""
+    text = (getattr(response, "output_text", None) or "").strip()
+    finish_reason = None
     if not text:
         raise GeminiProviderError("Gemini devolvió una respuesta vacía", 502)
-    metadata = getattr(response, "usage_metadata", None)
+    metadata = getattr(response, "usage", None) or getattr(response, "usage_metadata", None)
     usage = {
-        "prompt_tokens": getattr(metadata, "prompt_token_count", None),
-        "output_tokens": getattr(metadata, "candidates_token_count", None),
-        "total_tokens": getattr(metadata, "total_token_count", None),
+        "prompt_tokens": getattr(metadata, "input_tokens", None) or getattr(metadata, "prompt_token_count", None),
+        "output_tokens": getattr(metadata, "output_tokens", None) or getattr(metadata, "candidates_token_count", None),
+        "total_tokens": getattr(metadata, "total_tokens", None) or getattr(metadata, "total_token_count", None),
     }
-    return GeminiResult(text=text, model=getattr(response, "model_version", None) or model,
+    return GeminiResult(text=text, model=getattr(response, "model", None) or model,
                         finish_reason=finish_reason, usage=usage)

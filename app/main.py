@@ -123,7 +123,12 @@ def android_assetlinks():
     return JSONResponse(
         content=[
             {
-                "relation": ["delegate_permission/common.get_login_creds"],
+                # get_login_creds permite compartir credenciales; handle_all_urls
+                # también es necesario para que Android verifique el RP al crear passkeys.
+                "relation": [
+                    "delegate_permission/common.handle_all_urls",
+                    "delegate_permission/common.get_login_creds",
+                ],
                 "target": {
                     "namespace": "android_app",
                     "package_name": package_name,

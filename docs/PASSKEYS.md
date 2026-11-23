@@ -43,10 +43,10 @@ VALKEY_URL=rediss://usuario:clave@host:6379
 - El dominio debe publicar `/.well-known/apple-app-site-association` y `/.well-known/assetlinks.json`
   para los flujos Apple y Android que se usen.
 - FastAPI genera `/.well-known/assetlinks.json` usando `PASSKEY_ANDROID_PACKAGE_NAME` y
-  `PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS` (huellas separadas por coma). Para este proyecto publica
-  `delegate_permission/common.get_login_creds`, que asocia la app y el sitio para compartir credenciales.
-  No publica `handle_all_urls` porque AndroidManifest no declara App Links. El endpoint es público y
-  entrega JSON `200 application/json` sin redirección.
+  `PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS` (huellas separadas por coma). Publica
+  `delegate_permission/common.get_login_creds` para compartir credenciales y
+  `delegate_permission/common.handle_all_urls` para que Android verifique la asociación de dominio
+  requerida al crear passkeys. El endpoint es público y entrega JSON `200 application/json` sin redirección.
 - Para la configuración local del proyecto Flutter, el `applicationId` es
   `com.example.costa_de_oro_imports`; no uses el package name de otro proyecto. El `assetlinks.json`
   necesita la huella SHA-256 del certificado que firmó el APK instalado. Añade todas las huellas
