@@ -24,7 +24,7 @@ from app.core.database import get_db
 from app.core.security import create_token, hash_password, verify_password, is_bcrypt_hash
 from app.models import BiometricCredential, Empresa, Rol, Usuario
 from app.schemas import LoginRequest, OAuthLoginRequest, RegisterRequest, UserResponse
-from app.services.email_service import send_login_notice, send_password_reset, send_welcome
+from app.services.email_service import gmail_is_configured, send_login_notice, send_password_reset, send_welcome
 
 router = APIRouter(tags=["Autenticación"])
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ def request_password_reset(payload: PasswordResetRequest, request: Request, db: 
     resend_key = f"{_reset_email_key(correo)}:resend"
     if not cache_set_json_if_absent(resend_key, True, RESET_RESEND_TTL):
         raise HTTPException(429, "Espera un minuto antes de solicitar otra recuperación")
-    if not (settings.valkey_url and settings.gmail_credentials_file.is_file() and settings.gmail_token_file.is_file()):
+    if not (settings.valkey_url and gmail_is_configured()):
         cache_delete(resend_key)
         raise HTTPException(503, "El servicio de recuperación no está configurado")
     user = db.scalar(select(Usuario).where(Usuario.correo == correo))

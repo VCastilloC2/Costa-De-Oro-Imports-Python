@@ -7,6 +7,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+
+def resolve_runtime_file(configured_path: Path) -> Path:
+    """Resolve configured files from the project or Render's mounted secret directory."""
+    path = Path(configured_path).expanduser()
+    candidates = [path]
+    if not path.is_absolute():
+        candidates.append(PROJECT_ROOT / path)
+    # Render Secret Files are mounted read-only at /etc/secrets/<filename>.
+    candidates.append(Path("/etc/secrets") / path.name)
+    unique_candidates = list(dict.fromkeys(candidates))
+    return next((candidate for candidate in unique_candidates if candidate.is_file()), unique_candidates[0])
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False)
     app_name: str = Field("Costa De Oro Imports API", validation_alias=AliasChoices("NombreAplicacion", "APP_NAME"))
@@ -49,6 +61,15 @@ class Settings(BaseSettings):
     passkey_cache_ttl_seconds: int = Field(3600, ge=60, le=604800, validation_alias=AliasChoices("PASSKEY_CACHE_TTL_SECONDS"))
     passkey_session_ttl_seconds: int = Field(3600, ge=300, le=86400, validation_alias=AliasChoices("PASSKEY_SESSION_TTL_SECONDS"))
     passkey_ceremony_timeout_ms: int = Field(120000, ge=30000, le=600000, validation_alias=AliasChoices("PASSKEY_CEREMONY_TIMEOUT_MS"))
+    # --- OpenStreetMap Nominatim (búsqueda puntual de ciudades, nunca autocompletado) ---
+    nominatim_enabled: bool = Field(True, validation_alias=AliasChoices("NOMINATIM_ENABLED"))
+    nominatim_base_url: str = Field("https://nominatim.openstreetmap.org", validation_alias=AliasChoices("NOMINATIM_BASE_URL"))
+    nominatim_user_agent: str = Field(
+        "CostaDeOroImportsFastAPI/1.0 (https://costa-de-oro-imports-python.onrender.com)",
+        validation_alias=AliasChoices("NOMINATIM_USER_AGENT"),
+    )
+    nominatim_timeout_seconds: float = Field(8.0, ge=2, le=30, validation_alias=AliasChoices("NOMINATIM_TIMEOUT_SECONDS"))
+    nominatim_cache_seconds: int = Field(604800, ge=60, le=2592000, validation_alias=AliasChoices("NOMINATIM_CACHE_SECONDS"))
     spring_jpa_hibernate_ddl_auto: str = "validate"
     prediccion_api_url: str | None = None
     prediccion_api_key: str | None = None

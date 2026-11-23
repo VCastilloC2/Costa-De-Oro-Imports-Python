@@ -14,7 +14,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-from app.core.config import settings
+from app.core.config import resolve_runtime_file, settings
 
 logger = logging.getLogger(__name__)
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates" / "emails"
@@ -22,6 +22,19 @@ _templates = Environment(loader=FileSystemLoader(TEMPLATES), autoescape=select_a
 _email_adapter = TypeAdapter(EmailStr)
 _GMAIL_SCOPE = ["https://www.googleapis.com/auth/gmail.send"]
 _credentials_lock = Lock()
+
+
+def gmail_credentials_path() -> Path:
+    return resolve_runtime_file(settings.gmail_credentials_file)
+
+
+def gmail_token_path() -> Path:
+    return resolve_runtime_file(settings.gmail_token_file)
+
+
+def gmail_is_configured() -> bool:
+    """Check both configured paths and Render's /etc/secrets mount."""
+    return gmail_credentials_path().is_file() and gmail_token_path().is_file()
 
 
 def _email_date() -> str:
@@ -97,17 +110,22 @@ def send_email(to: str, subject: str, html: str, text: str) -> None:
     to = str(_email_adapter.validate_python(to))
     if not validate_email_domain(to):
         raise ValueError("El dominio del correo no tiene un servidor configurado para recibir mensajes")
-    if not settings.gmail_credentials_file.is_file():
-        raise RuntimeError("GMAIL_CREDENTIALS_FILE no apunta a un archivo existente")
-    if not settings.gmail_token_file.is_file():
+    credentials_path = gmail_credentials_path()
+    token_path = gmail_token_path()
+    if not credentials_path.is_file():
+        raise RuntimeError(
+            "No se encontró el archivo OAuth. En Render, usa GMAIL_CREDENTIALS_FILE=/etc/secrets/credentials.json "
+            "o crea un Secret File llamado credentials.json."
+        )
+    if not token_path.is_file():
         raise RuntimeError("No existe el token OAuth de Gmail. Ejecuta python -m scripts.authorize_gmail")
     try:
         with _credentials_lock:
-            credentials = Credentials.from_authorized_user_file(str(settings.gmail_token_file), _GMAIL_SCOPE)
+            credentials = Credentials.from_authorized_user_file(str(token_path), _GMAIL_SCOPE)
             if credentials.expired and credentials.refresh_token:
                 credentials.refresh(Request())
                 try:
-                    settings.gmail_token_file.write_text(credentials.to_json(), encoding="utf-8")
+                    token_path.write_text(credentials.to_json(), encoding="utf-8")
                 except OSError:
                     # Render secret files are mounted for reading; a refreshed
                     # access token is still valid for this request even when the

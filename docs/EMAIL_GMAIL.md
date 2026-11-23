@@ -44,9 +44,13 @@ La recuperación de contraseña requiere además Valkey, que guarda el código y
 3. Configura Render o Azure
    En la configuración de variables del servicio, define:
    GMAIL_SENDER=costadeoroimports2@gmail.com
-   GMAIL_CREDENTIALS_FILE=keys/credentials.json
-   GMAIL_TOKEN_FILE=keys/gmail-token.json
-   GMAIL_OAUTH_REDIRECT_URI=https://TU-DOMINIO/oauth/callback
+   GMAIL_CREDENTIALS_FILE=/etc/secrets/credentials.json
+   GMAIL_TOKEN_FILE=/etc/secrets/gmail-token.json
+   GMAIL_OAUTH_REDIRECT_URI=http://localhost:8765/
+
+   En Render → Secret Files, crea los archivos `credentials.json` y `gmail-token.json` y pega en cada uno su JSON correspondiente. Render los monta en `/etc/secrets/`. El backend también detecta automáticamente esos archivos si las variables solo contienen sus nombres (`credentials.json` y `gmail-token.json`). El token debe ser un OAuth token de usuario generado con el permiso `gmail.send`; el archivo de credenciales es el JSON de cliente OAuth descargado de Google Cloud.
+
+   `GMAIL_OAUTH_REDIRECT_URI` solo se usa al generar un token con `scripts.authorize_gmail` en un equipo local; no hace falta una ruta `/oauth/callback` en FastAPI para enviar correos desde un token ya autorizado.
 
 
 ## Referencias
