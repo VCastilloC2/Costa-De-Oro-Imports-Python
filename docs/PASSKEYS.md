@@ -25,10 +25,10 @@ mysql -u <usuario> -p db_beer < app/sql/passkeys.sql
 `.env`:
 
 ```env
-PASSKEY_RP_ID=costadeoroimports.com
-PASSKEY_RP_NAME=Costa de Oro Imports
-# iOS usa https://<dominio>; Android usa android:apk-key-hash:<sha256 del certificado en base64url>
-PASSKEY_EXPECTED_ORIGINS=https://costadeoroimports.com,android:apk-key-hash:XXXXXXXX
+PASSKEY_RP_ID=costa-de-oro-imports-python.onrender.com
+PASSKEY_RP_NAME=Costa De Oro Imports
+# Los orígenes android:apk-key-hash se derivan de las huellas publicadas abajo.
+PASSKEY_EXPECTED_ORIGINS=https://costa-de-oro-imports-python.onrender.com
 PASSKEY_ANDROID_PACKAGE_NAME=com.example.costa_de_oro_imports
 PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS=AA:BB:CC:...:FF
 PASSKEY_CHALLENGE_TTL_SECONDS=300
@@ -38,20 +38,23 @@ VALKEY_URL=rediss://usuario:clave@host:6379
 ```
 
 - `PASSKEY_RP_ID` debe ser igual al `PASSKEY_RP_ID` de Flutter. Si está vacío, los endpoints responden `503`.
-- Para calcular el origen de Android a partir del SHA-256 del certificado:
-  ```bash
-  python -c "import base64,sys;print('android:apk-key-hash:'+base64.urlsafe_b64encode(bytes.fromhex(sys.argv[1].replace(':',''))).decode().rstrip('='))" AA:BB:...:FF
-  ```
+- El backend deriva automáticamente `android:apk-key-hash:<base64url>` para cada certificado de
+  `PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS`; no agregues un origen Android manualmente.
 - El dominio debe publicar `/.well-known/apple-app-site-association` y `/.well-known/assetlinks.json`
-  (ver `docs/passkeys.md` del repositorio Flutter).
+  para los flujos Apple y Android que se usen.
 - FastAPI genera `/.well-known/assetlinks.json` usando `PASSKEY_ANDROID_PACKAGE_NAME` y
-  `PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS` (huellas separadas por coma). Publica la asociación Android
-  para `handle_all_urls` y `get_login_creds`, además de la asociación web para el host de la solicitud.
-  Sirve el archivo directamente en HTTPS, con status `200`, `Content-Type: application/json` y caché de 5 minutos.
+  `PASSKEY_ANDROID_SHA256_CERT_FINGERPRINTS` (huellas separadas por coma). Para este proyecto publica
+  `delegate_permission/common.get_login_creds`, que asocia la app y el sitio para compartir credenciales.
+  No publica `handle_all_urls` porque AndroidManifest no declara App Links. El endpoint es público y
+  entrega JSON `200 application/json` sin redirección.
 - Para la configuración local del proyecto Flutter, el `applicationId` es
   `com.example.costa_de_oro_imports`; no uses el package name de otro proyecto. El `assetlinks.json`
   necesita la huella SHA-256 del certificado que firmó el APK instalado. Añade todas las huellas
   separadas por coma si debug y release usan certificados diferentes.
+- La primera huella de este ejemplo fue comprobada contra el `debug.keystore` de desarrollo. La segunda
+  no se puede verificar desde este repositorio: si corresponde a Google Play, confirma que sea el
+  **certificado de firma de la app** de Play Console, no el certificado de carga. El APK instalado desde
+  Play se firma con el certificado de Play App Signing.
 - El plugin de Flutter busca `https://<PASSKEY_RP_ID>/.well-known/assetlinks.json` en el puerto 443.
   Si el API solo escucha en `:8000`, el diagnóstico Android no encuentra el archivo. Para esta
   configuración local, inicia FastAPI por HTTPS en 443:
@@ -73,6 +76,8 @@ VALKEY_URL=rediss://usuario:clave@host:6379
   instalado (debug y release pueden tener certificados distintos).
 - El Flutter del proyecto debe usar ese mismo hostname como `PASSKEY_RP_ID` y su URL base HTTPS.
   `http://192.168.x.x` sirve para llamadas API de desarrollo, pero no para WebAuthn Android.
+- Las verificaciones WebAuthn incluyen el origen nativo Android derivado de los mismos certificados
+  declarados en `assetlinks.json`; se mantienen estrictos tanto el challenge como `rpId` y origin.
 
 ## 2. Estrategia Valkey → MySQL
 

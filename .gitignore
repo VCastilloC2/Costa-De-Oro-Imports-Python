@@ -18,6 +18,10 @@
 .env.docker
 **/*.env
 */*.env
+keys/credentials.json
+keys/gmail-token.json
+token.json
+keys/*.json
 
 ### VS Code ###
 .vscode/

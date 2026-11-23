@@ -18,7 +18,10 @@ class RegisterRequest(BaseModel):
 
 class OAuthLoginRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
-    id_token: str = Field(min_length=20)
+    id_token: str = Field(
+        min_length=20,
+        validation_alias=AliasChoices("id_token", "idToken", "identity_token", "identityToken"),
+    )
     correo: EmailStr | None = None
     tipo_identificacion: str | None = Field(default=None, validation_alias=AliasChoices("tipoIdentificacion", "tipo_identificacion"), pattern="^(CC|CE|DE|NIT|PP|TE|TI)$")
     numero_identificacion: str | None = Field(default=None, validation_alias=AliasChoices("numeroIdentificacion", "numero_identificacion"), max_length=15)

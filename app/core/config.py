@@ -1,5 +1,7 @@
+import base64
 from functools import lru_cache
 from pathlib import Path
+import re
 from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -58,8 +60,10 @@ class Settings(BaseSettings):
     remember_me_token: str | None = None
     password_url_recaptcha: str = "https://www.google.com/recaptcha/api/siteverify"
     password_key_recaptcha: str | None = None
-    resend_api_key: str | None = Field(default=None, validation_alias=AliasChoices("RESEND_API_KEY"))
-    mail_from: str | None = Field(default=None, validation_alias=AliasChoices("MAIL_FROM"))
+    gmail_credentials_file: Path = Field(PROJECT_ROOT / "credentials.json", validation_alias=AliasChoices("GMAIL_CREDENTIALS_FILE"))
+    gmail_token_file: Path = Field(PROJECT_ROOT / "gmail-token.json", validation_alias=AliasChoices("GMAIL_TOKEN_FILE"))
+    gmail_sender: str = Field("costadeoroimports2@gmail.com", validation_alias=AliasChoices("GMAIL_SENDER"))
+    gmail_oauth_redirect_uri: str = Field("http://localhost:8765/", validation_alias=AliasChoices("GMAIL_OAUTH_REDIRECT_URI"))
     frontend_url: str = Field("http://localhost:3000", validation_alias=AliasChoices("FRONTEND_URL"))
     cloud_name: str | None = None
     cloud_api_key: str | None = None
@@ -93,7 +97,16 @@ class Settings(BaseSettings):
         origins = [x.strip() for x in self.passkey_expected_origins.split(",") if x.strip()]
         if not origins and self.passkey_rp_id:
             origins = [f"https://{self.passkey_rp_id.strip()}"]
-        return origins
+        # Android Credential Manager reports the signing certificate hash as
+        # android:apk-key-hash:<base64url(SHA-256 certificate)>.
+        # Derive these from the same fingerprints published in assetlinks.json
+        # so debug/release signing changes cannot silently desynchronize origins.
+        for fingerprint in self.passkey_android_sha256_fingerprints.split(","):
+            normalized = fingerprint.strip().replace(":", "")
+            if re.fullmatch(r"[0-9a-fA-F]{64}", normalized):
+                digest = base64.urlsafe_b64encode(bytes.fromhex(normalized)).decode("ascii").rstrip("=")
+                origins.append(f"android:apk-key-hash:{digest}")
+        return list(dict.fromkeys(origins))
 
     @property
     def prediction_roles(self) -> set[str]:

@@ -99,9 +99,10 @@ def root():
     include_in_schema=True,
     tags=["Passkeys"]
 )
-def android_assetlinks(request: Request):
+def android_assetlinks():
     """Publica la asociación Android necesaria para Passkeys."""
 
+    rp_id = settings.passkey_rp_id.strip().lower()
     package_name = settings.passkey_android_package_name.strip()
 
     fingerprints = [
@@ -113,7 +114,7 @@ def android_assetlinks(request: Request):
         )
     ]
 
-    if not package_name or not fingerprints:
+    if not rp_id or not package_name or not fingerprints:
         raise HTTPException(
             status_code=503,
             detail="Asociación Android de Passkeys no configurada"
@@ -122,24 +123,11 @@ def android_assetlinks(request: Request):
     return JSONResponse(
         content=[
             {
-                "relation": [
-                    "delegate_permission/common.handle_all_urls",
-                    "delegate_permission/common.get_login_creds",
-                ],
+                "relation": ["delegate_permission/common.get_login_creds"],
                 "target": {
                     "namespace": "android_app",
                     "package_name": package_name,
                     "sha256_cert_fingerprints": fingerprints,
-                },
-            },
-            {
-                "relation": [
-                    "delegate_permission/common.handle_all_urls",
-                    "delegate_permission/common.get_login_creds",
-                ],
-                "target": {
-                    "namespace": "web",
-                    "site": f"https://{request.url.hostname}",
                 },
             },
         ],

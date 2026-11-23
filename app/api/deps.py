@@ -28,8 +28,12 @@ def _is_revoked(token: str) -> bool:
 
 
 def _valid_account(user: Usuario) -> bool:
-    return (user.is_enabled is True and user.account_non_expired is not False
-            and user.account_non_locked is not False and user.credentials_non_expired is not False)
+    return all((
+        user.is_enabled is True,
+        user.account_non_expired is True,
+        user.account_non_locked is True,
+        user.credentials_non_expired is True,
+    ))
 
 
 def current_user(

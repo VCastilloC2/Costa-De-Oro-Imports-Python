@@ -29,6 +29,16 @@ class BaseService:
     def create(self, db: Session, data: dict):
         allowed = {c.name for c in self.model.__table__.columns if not c.primary_key and not c.computed}
         payload = {k: v for k, v in data.items() if k in allowed}
+        # Las cuentas recién creadas siempre empiezan activas y habilitadas.
+        # El CRUD genérico permite recibir estos campos, así que se fuerzan aquí
+        # igual que en los flujos de registro y alta administrativa.
+        if self.model.__name__ == "Usuario":
+            payload.update({
+                "account_non_expired": True,
+                "account_non_locked": True,
+                "credentials_non_expired": True,
+                "is_enabled": True,
+            })
         # Las contraseñas nunca se almacenan en texto plano, incluso desde el CRUD de administración.
         if self.model.__name__ == "Usuario" and payload.get("password"):
             from app.core.security import hash_password

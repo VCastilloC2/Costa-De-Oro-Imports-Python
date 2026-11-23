@@ -1,13 +1,18 @@
-"""Transactional email rendering and delivery through the Resend HTTPS API."""
+"""Transactional email rendering and delivery through the Gmail API."""
 from __future__ import annotations
 
+import base64
 import logging
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from pathlib import Path
+from threading import Lock
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import EmailStr, TypeAdapter
-import resend
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
 from app.core.config import settings
 
@@ -15,6 +20,8 @@ logger = logging.getLogger(__name__)
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates" / "emails"
 _templates = Environment(loader=FileSystemLoader(TEMPLATES), autoescape=select_autoescape(["html"]))
 _email_adapter = TypeAdapter(EmailStr)
+_GMAIL_SCOPE = ["https://www.googleapis.com/auth/gmail.send"]
+_credentials_lock = Lock()
 
 
 def _email_date() -> str:
@@ -59,7 +66,10 @@ def validate_email_domain(address: str) -> bool:
         resolver.timeout = 3
         resolver.lifetime = 5
         try:
-            return bool(resolver.resolve(domain, "MX"))
+            records = resolver.resolve(domain, "MX")
+            # A null MX (exchange='.') explicitly states that the domain
+            # does not accept email, even though an MX record exists.
+            return any(str(record.exchange).rstrip(".") for record in records)
         except dns.resolver.NoAnswer:
             # RFC 5321 permits implicit MX when the domain itself resolves.
             for record_type in ("A", "AAAA"):
@@ -84,42 +94,53 @@ def render_email(template: str, **context: object) -> str:
 
 
 def send_email(to: str, subject: str, html: str, text: str) -> None:
-    if not settings.resend_api_key:
-        raise RuntimeError("RESEND_API_KEY no está configurada")
-    if not settings.mail_from:
-        raise RuntimeError("MAIL_FROM no está configurado")
     to = str(_email_adapter.validate_python(to))
-    resend.api_key = settings.resend_api_key
+    if not validate_email_domain(to):
+        raise ValueError("El dominio del correo no tiene un servidor configurado para recibir mensajes")
+    if not settings.gmail_credentials_file.is_file():
+        raise RuntimeError("GMAIL_CREDENTIALS_FILE no apunta a un archivo existente")
+    if not settings.gmail_token_file.is_file():
+        raise RuntimeError("No existe el token OAuth de Gmail. Ejecuta python -m scripts.authorize_gmail")
     try:
-        result = resend.Emails.send({
-            "from": settings.mail_from,
-            "to": [to],
-            "subject": subject,
-            "html": html,
-            "text": text,
-        })
-        # The SDK raises ResendError for HTTP/API failures. Guard against unexpected
-        # response shapes so a failed request is never reported as delivered.
-        if not result or not (result.get("id") if isinstance(result, dict) else getattr(result, "id", None)):
-            raise RuntimeError("Resend no confirmó la aceptación del correo")
+        with _credentials_lock:
+            credentials = Credentials.from_authorized_user_file(str(settings.gmail_token_file), _GMAIL_SCOPE)
+            if credentials.expired and credentials.refresh_token:
+                credentials.refresh(Request())
+                try:
+                    settings.gmail_token_file.write_text(credentials.to_json(), encoding="utf-8")
+                except OSError:
+                    # Render secret files are mounted for reading; a refreshed
+                    # access token is still valid for this request even when the
+                    # source token file cannot be updated.
+                    logger.debug("El archivo OAuth es de solo lectura; se usó el token renovado en memoria")
+        message = EmailMessage()
+        message["To"] = to
+        message["From"] = settings.gmail_sender
+        message["Subject"] = subject
+        message.set_content(text)
+        message.add_alternative(html, subtype="html")
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+        result = build("gmail", "v1", credentials=credentials, cache_discovery=False).users().messages().send(
+            userId="me", body={"raw": raw}
+        ).execute()
+        if not result or not result.get("id"):
+            raise RuntimeError("Gmail no confirmó la aceptación del correo")
     except Exception as exc:
-        error_code = getattr(exc, "code", None)
+        error_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
         try:
-            status = int(getattr(exc, "status_code", None) or error_code)
+            status = int(error_code)
         except (TypeError, ValueError):
             status = None
-        error_type = str(getattr(exc, "error_type", "") or "").lower()
-        error_name = type(exc).__name__.lower()
-        if status == 401 or "api_key" in error_type or "api_key" in error_name or "unauthorized" in error_type:
-            logger.error("Resend rechazó la autenticación (HTTP %s)", status or "desconocido")
-        elif status == 429 or "rate" in error_type or "rate" in error_name:
-            logger.warning("Resend alcanzó el límite de envío (HTTP %s)", status or "desconocido")
-        elif status in (400, 422) or "recipient" in error_type or "email_invalid" in error_type:
-            logger.warning("Resend rechazó los datos del correo (HTTP %s)", status or "desconocido")
+        if status in (401, 403):
+            logger.error("Gmail rechazó la autorización o el permiso gmail.send (HTTP %s)", status)
+        elif status == 429:
+            logger.warning("Gmail alcanzó el límite de envío (HTTP 429)")
+        elif status in (400, 422):
+            logger.warning("Gmail rechazó el mensaje (HTTP %s)", status)
         elif isinstance(exc, (OSError, TimeoutError, ConnectionError)):
-            logger.warning("Error de conexión HTTPS con Resend: %s", type(exc).__name__)
+            logger.warning("Error de conexión HTTPS con Gmail: %s", type(exc).__name__)
         else:
-            logger.error("Falló el envío mediante Resend (HTTP %s, tipo %s)", status or "desconocido", type(exc).__name__)
+            logger.error("Falló el envío mediante Gmail (HTTP %s, tipo %s)", status or "desconocido", type(exc).__name__)
         raise
 
 

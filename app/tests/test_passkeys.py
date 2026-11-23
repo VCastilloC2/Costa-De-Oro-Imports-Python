@@ -28,6 +28,41 @@ LOGIN_START = "/api/v1/auth/passkey/login/start"
 LOGIN_FINISH = "/api/v1/auth/passkey/login/finish"
 
 
+def test_android_origins_are_derived_from_all_published_signing_certificates(monkeypatch):
+    monkeypatch.setattr(settings, "passkey_rp_id", "costa-de-oro-imports-python.onrender.com")
+    monkeypatch.setattr(settings, "passkey_expected_origins", "https://costa-de-oro-imports-python.onrender.com")
+    monkeypatch.setattr(settings, "passkey_android_sha256_fingerprints", ",".join([
+        "7D:23:A6:86:7C:AA:B5:73:C2:9D:E8:48:B9:C7:D8:CB:18:3F:7E:A5:A5:C0:1E:86:36:E9:B9:8F:D6:F5:19:4D",
+        "D7:92:22:90:27:39:E5:58:45:2C:0F:BB:BC:39:C7:A0:11:4F:18:27:36:9F:52:A7:F5:C7:4F:74:BB:C9:01:46",
+    ]))
+
+    origins = settings.passkey_origins
+    assert origins[0] == "https://costa-de-oro-imports-python.onrender.com"
+    assert origins[1:] == [
+        "android:apk-key-hash:fSOmhnyqtXPCnehIucfYyxg_fqWlwB6GNum5j9b1GU0",
+        "android:apk-key-hash:15IikCc55VhFLA-7vDnHoBFPGCc2n1Kn9cdPdLvJAUY",
+    ]
+
+
+def test_assetlinks_is_public_json_with_only_credential_sharing(monkeypatch, client):
+    monkeypatch.setattr(settings, "passkey_rp_id", "costa-de-oro-imports-python.onrender.com")
+    monkeypatch.setattr(settings, "passkey_android_package_name", "com.example.costa_de_oro_imports")
+    monkeypatch.setattr(settings, "passkey_android_sha256_fingerprints",
+                        "7D:23:A6:86:7C:AA:B5:73:C2:9D:E8:48:B9:C7:D8:CB:18:3F:7E:A5:A5:C0:1E:86:36:E9:B9:8F:D6:F5:19:4D")
+
+    response = client.get("/.well-known/assetlinks.json", follow_redirects=False)
+    body = response.json()
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert "location" not in response.headers
+    assert body[0]["relation"] == ["delegate_permission/common.get_login_creds"]
+    assert body[0]["target"]["package_name"] == "com.example.costa_de_oro_imports"
+    assert body[0]["target"]["sha256_cert_fingerprints"] == [
+        "7D:23:A6:86:7C:AA:B5:73:C2:9D:E8:48:B9:C7:D8:CB:18:3F:7E:A5:A5:C0:1E:86:36:E9:B9:8F:D6:F5:19:4D"
+    ]
+    assert len(body) == 1
+
+
 class FakeValkey:
     """Subconjunto de la API de valkey-py usado por la aplicación."""
 

@@ -43,7 +43,7 @@ class PasswordResetVerifyRequest(PasswordResetRequest):
 
 
 class PasswordResetCompleteRequest(PasswordResetVerifyRequest):
-    nueva_contrasena: str = Field(min_length=6, max_length=128)
+    nueva_contrasena: str = Field(min_length=5, max_length=128)
 
 
 class BiometricRegisterRequest(BaseModel):
@@ -104,7 +104,7 @@ def request_password_reset(payload: PasswordResetRequest, request: Request, db: 
     resend_key = f"{_reset_email_key(correo)}:resend"
     if not cache_set_json_if_absent(resend_key, True, RESET_RESEND_TTL):
         raise HTTPException(429, "Espera un minuto antes de solicitar otra recuperación")
-    if not (settings.valkey_url and settings.resend_api_key and settings.mail_from):
+    if not (settings.valkey_url and settings.gmail_credentials_file.is_file() and settings.gmail_token_file.is_file()):
         cache_delete(resend_key)
         raise HTTPException(503, "El servicio de recuperación no está configurado")
     user = db.scalar(select(Usuario).where(Usuario.correo == correo))
@@ -156,8 +156,12 @@ def complete_password_reset(payload: PasswordResetCompleteRequest, db: Session =
 
 
 def _user_active(user: Usuario) -> bool:
-    return (user.is_enabled is True and user.account_non_locked is not False
-            and user.account_non_expired is not False and user.credentials_non_expired is not False)
+    return all((
+        user.is_enabled is True,
+        user.account_non_expired is True,
+        user.account_non_locked is True,
+        user.credentials_non_expired is True,
+    ))
 
 
 def _user_data(user: Usuario, role_name: str) -> dict:
@@ -405,45 +409,57 @@ def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session, backgrou
     if payload.correo and str(payload.correo).lower().strip() != email:
         raise HTTPException(422, "El correo del registro debe coincidir con el correo verificado por OAuth")
     user = db.scalar(select(Usuario).where(Usuario.correo == email))
-    if user:
-        if not _user_active(user):
-            raise HTTPException(403, "Cuenta deshabilitada, bloqueada o pendiente de aprobación")
-        role = db.get(Rol, user.rol_id) if user.rol_id else None
-        if not role or not role.rol:
-            raise HTTPException(403, "La cuenta no tiene un rol válido asignado")
-        if background_tasks and request:
-            _schedule_login_notice(background_tasks, user, request)
-        return _issue_token(user, str(role.rol))
+    created = False
+    if user is None:
+        # The provider's verified identity supplies the account email. Profile
+        # fields are optional because Apple/Google do not always return them.
+        provider_name = str(claims.get("name") or "").strip()
+        given_name = str(claims.get("given_name") or "").strip()
+        family_name = str(claims.get("family_name") or "").strip()
+        names = provider_name or " ".join(part for part in (given_name, family_name) if part)
+        names = names or (payload.nombres or "").strip() or None
+        surnames = (payload.apellidos or "").strip() or None
+        if not surnames and given_name and family_name and not provider_name:
+            names, surnames = given_name, family_name
 
-    required = {
-        "tipoIdentificacion": payload.tipo_identificacion,
-        "numeroIdentificacion": payload.numero_identificacion,
-        "nombres": payload.nombres,
-        "apellidos": payload.apellidos,
-        "telefono": payload.telefono,
-        "correo": payload.correo,
-        "password": payload.password,
-    }
-    missing = [name for name, value in required.items() if value is None or not str(value).strip()]
-    if missing:
-        raise HTTPException(422, {"mensaje": "Completa los 7 campos obligatorios para finalizar el registro", "campos": missing})
-    role = _role(db, "PERSONA_NATURAL")
-    user = Usuario(
-        correo=email, password=hash_password(payload.password), nombres=payload.nombres,
-        apellidos=payload.apellidos, telefono=payload.telefono,
-        tipo_identificacion=payload.tipo_identificacion, numero_identificacion=payload.numero_identificacion,
-        imagen=DEFAULT_USER_IMAGE, rol_id=role.rol_id, is_enabled=True, account_non_expired=True,
-        account_non_locked=True, credentials_non_expired=True,
-    )
-    try:
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(409, "No fue posible finalizar el registro social") from exc
+        role = _role(db, "PERSONA_NATURAL")
+        user = Usuario(
+            correo=email,
+            # Social-only users can set a password later through password recovery.
+            password=hash_password(payload.password) if payload.password else None,
+            nombres=names,
+            apellidos=surnames,
+            telefono=(payload.telefono or "").strip() or None,
+            tipo_identificacion=payload.tipo_identificacion,
+            numero_identificacion=(payload.numero_identificacion or "").strip() or None,
+            imagen=DEFAULT_USER_IMAGE,
+            rol_id=role.rol_id,
+            is_enabled=True,
+            account_non_expired=True,
+            account_non_locked=True,
+            credentials_non_expired=True,
+        )
+        try:
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            created = True
+        except Exception as exc:
+            db.rollback()
+            # If two first-time OAuth requests race, use the account created by
+            # the winning request instead of returning a duplicate-email error.
+            user = db.scalar(select(Usuario).where(Usuario.correo == email))
+            if user is None:
+                raise HTTPException(409, "No fue posible registrar la cuenta social") from exc
+
+    if not _user_active(user):
+        raise HTTPException(403, "Cuenta deshabilitada, bloqueada o pendiente de aprobación")
+    role = db.get(Rol, user.rol_id) if user.rol_id else None
+    if not role or not role.rol:
+        raise HTTPException(403, "La cuenta no tiene un rol válido asignado")
     if background_tasks:
-        background_tasks.add_task(send_welcome, email, f"{user.nombres} {user.apellidos}".strip(), str(role.rol))
+        if created:
+            background_tasks.add_task(send_welcome, email, f"{user.nombres or ''} {user.apellidos or ''}".strip(), str(role.rol))
         if request:
             _schedule_login_notice(background_tasks, user, request)
     return _issue_token(user, str(role.rol))

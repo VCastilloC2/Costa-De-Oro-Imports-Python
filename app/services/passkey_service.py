@@ -75,8 +75,12 @@ def _transports(values: list[str] | None) -> list[AuthenticatorTransport]:
 
 
 def _user_active(user: Usuario) -> bool:
-    return (user.is_enabled is True and user.account_non_locked is not False
-            and user.account_non_expired is not False and user.credentials_non_expired is not False)
+    return all((
+        user.is_enabled is True,
+        user.account_non_expired is True,
+        user.account_non_locked is True,
+        user.credentials_non_expired is True,
+    ))
 
 
 def ensure_enabled() -> None:
