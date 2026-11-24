@@ -173,7 +173,23 @@ def profile(user: Usuario = Depends(current_user)):
 
 @app.get("/perfil/configuracion", tags=["Perfil"])
 def profile_config(user: Usuario = Depends(current_user), db: Session = Depends(get_db)):
-    return {"usuarioId": user.usuario_id, "correo": user.correo, "rol": user_role(user, db), "tieneEmpresa": bool(user.empresa_id)}
+    return {
+        "usuarioId": user.usuario_id,
+        "correo": user.correo,
+        "rol": user_role(user, db),
+        "tieneEmpresa": bool(user.empresa_id),
+        "nombres": user.nombres,
+        "apellidos": user.apellidos,
+        "telefono": user.telefono,
+        "imagen": user.imagen,
+        "direccion": user.direccion,
+        "tipo_identificacion": user.tipo_identificacion,
+        "numero_identificacion": user.numero_identificacion,
+        "account_non_expired": user.account_non_expired,
+        "account_non_locked": user.account_non_locked,
+        "credentials_non_expired": user.credentials_non_expired,
+        "is_enabled": user.is_enabled,
+    }
 
 
 @app.get("/api/productos", tags=["Catálogo"], response_model=list[ProductResponse])
