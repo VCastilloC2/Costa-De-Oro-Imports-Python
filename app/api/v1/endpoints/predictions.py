@@ -503,8 +503,10 @@ def _client_dict(row) -> dict:
     "/clients", tags=[ADMIN_TAG], status_code=201, response_model=ApiResponse[ApiClientCreated],
     responses={**AUTH_ERRORS, 503: _err("Tablas ML no creadas")},
     summary="Crear una API Key para una integración externa",
-    description="Emite una credencial de servicio (p. ej. para Spring Boot) con permisos `predictions:read` "
-                "y/o `predictions:generate`. La clave se devuelve UNA sola vez; sólo se guarda su hash SHA-256. "
+    description="Emite una credencial de servicio (p. ej. para Spring Boot) con permisos `predictions:read`, "
+                "`predictions:generate`, `admin:read` y/o `admin:write`. Usa `admin:read` para las gráficas "
+                "`/api/graficas/*`; `admin:write` también permite lecturas administrativas. "
+                "La clave se devuelve UNA sola vez; sólo se guarda su hash SHA-256. "
                 "Las API Keys nunca pueden entrenar modelos." + ADMIN_DOC,
 )
 def create_api_client(payload: ApiClientCreateRequest, principal: Annotated[dict, ADMIN_ONLY],

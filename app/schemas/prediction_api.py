@@ -305,7 +305,7 @@ class PredictionSummary(BaseModel):
 
 class ApiClientCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={"example": {
-        "name": "erp-spring-boot", "scopes": ["predictions:read", "predictions:generate"]}})
+        "name": "erp-spring-boot", "scopes": ["predictions:read", "predictions:generate", "admin:read"]}})
     name: str = Field(min_length=3, max_length=120)
     scopes: list[ScopeLiteral] = Field(min_length=1)
 
