@@ -80,8 +80,8 @@ def predict_demand(
         logger.exception("El pipeline de predicciÃ³n no estÃ¡ disponible")
         raise HTTPException(status_code=503, detail="El motor predictivo no estÃ¡ disponible") from exc
     except Exception as exc:
-        logger.exception("FallÃ³ la inferencia de ventas")
-        raise HTTPException(status_code=503, detail="No se pudo completar la predicciÃ³n") from exc
+        logger.exception("Falla la inferencia de ventas")
+        raise HTTPException(status_code=503, detail="No se pudo completar la prediccion") from exc
 
     try:
         validation = evaluate(dataset, today.year)
@@ -115,7 +115,7 @@ def predict_demand(
         confidence_percentage=confidence,
         error_margin_percentage=error_margin,
         algorithm_name=(
-            "Ensamble promedio: RegresiÃ³n Lineal (Scikit-Learn) + "
+            "Ensamble promedio: Regresion Lineal (Scikit-Learn) + "
             "Red Neuronal MLP (TensorFlow/Keras)"
         ),
         model_version="sales-ensemble-v1",
