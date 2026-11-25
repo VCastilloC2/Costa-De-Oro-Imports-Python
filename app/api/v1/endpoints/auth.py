@@ -390,6 +390,18 @@ def _oauth_claims(provider: str, id_token: str) -> dict:
         signing_key = jwks.get_signing_key_from_jwt(id_token)
         claims = jwt.decode(id_token, signing_key.key, algorithms=["RS256"], audience=client_ids, issuer=issuer)
     except Exception as exc:
+        if provider == "google":
+            try:
+                unverified = jwt.decode(id_token, options={"verify_signature": False, "verify_aud": False})
+            except Exception:
+                unverified = {}
+            # Never log the bearer token or email; these claims help distinguish
+            # wrong OAuth audience/issuer from expiration or JWKS network errors.
+            logger.warning(
+                "Google ID token rechazado (%s): aud=%s iss=%s exp=%s configured_audiences=%s",
+                type(exc).__name__, unverified.get("aud"), unverified.get("iss"),
+                unverified.get("exp"), client_ids,
+            )
         raise HTTPException(401, "Token OAuth inválido o expirado") from exc
     verified = claims.get("email_verified")
     if verified not in (True, "true", "True", 1):

@@ -7,6 +7,7 @@ import cloudinary
 from cloudinary.uploader import upload as cloudinary_upload
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import EmailStr, TypeAdapter, ValidationError
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,12 +15,33 @@ from app.api.deps import current_user
 from app.core.cache import cache_auth_credentials, cache_auth_user, cache_delete, credential_cache_key
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Rol, Usuario
+from app.models import Compra, Rol, Usuario
 from app.schemas import UserResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/perfil", tags=["Perfil"])
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+@router.get("/pedidos")
+def list_my_orders(user: Usuario = Depends(current_user), db: Session = Depends(get_db)) -> list[dict]:
+    """Orders and payment history for the authenticated account only."""
+    purchases = db.scalars(
+        select(Compra)
+        .where(Compra.usuario_id == user.usuario_id)
+        .order_by(Compra.fecha.desc(), Compra.compra_id.desc())
+    ).all()
+    return [
+        {
+            "compraId": purchase.compra_id,
+            "numeroOrden": f"ORD-{purchase.compra_id:04d}",
+            "metodoPago": purchase.metodo_pago,
+            "total": float(purchase.total or 0),
+            "fecha": purchase.fecha.isoformat() if purchase.fecha else None,
+            "estado": purchase.estado,
+        }
+        for purchase in purchases
+    ]
 
 
 @router.patch("", response_model=UserResponse)
