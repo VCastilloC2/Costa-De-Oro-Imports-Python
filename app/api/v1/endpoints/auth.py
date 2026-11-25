@@ -494,10 +494,10 @@ def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session, backgrou
 
 @router.post("/auth/logout")
 def logout(
-    user: Usuario = Depends(current_user),
     credentials=Depends(security),
 ):
-    # JWT remains self-contained; Valkey revokes this token immediately while the cache is available.
+    # Logout is idempotent: clients can clear a stale/expired session too.
+    # A valid presented token is still revoked immediately when possible.
     if credentials:
         try:
             payload = jwt.decode(credentials.credentials, settings.jwt_secret_ecommerce, algorithms=["HS256"], options={"verify_signature": False})
