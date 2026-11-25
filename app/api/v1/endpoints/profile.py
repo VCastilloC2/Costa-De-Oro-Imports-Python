@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 import cloudinary
 from cloudinary.uploader import upload as cloudinary_upload
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import EmailStr, TypeAdapter, ValidationError
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -15,12 +16,45 @@ from app.api.deps import current_user
 from app.core.cache import cache_auth_credentials, cache_auth_user, cache_delete, credential_cache_key
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Compra, Rol, Usuario
+from app.models import Compra, Peticion, Rol, Usuario
 from app.schemas import UserResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/perfil", tags=["Perfil"])
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+class ContactRequest(BaseModel):
+    asunto: str = Field(min_length=4, max_length=180)
+    mensaje: str = Field(min_length=10, max_length=1000)
+    tipo: str = Field(default="PETICION", pattern="^(PETICION|QUEJA|RECLAMO|SUGERENCIA)$")
+
+
+@router.post("/contacto", status_code=201)
+def create_contact_request(
+    payload: ContactRequest,
+    user: Usuario = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Create a support/PQRS request for the signed-in account."""
+    request = Peticion(
+        activo=True,
+        fecha=date.today(),
+        usuario_id=user.usuario_id,
+        asunto=payload.asunto.strip(),
+        mensaje=payload.mensaje.strip(),
+        estado="PENDIENTE",
+        tipo=payload.tipo,
+    )
+    try:
+        db.add(request)
+        db.commit()
+        db.refresh(request)
+    except Exception as exc:
+        db.rollback()
+        logger.exception("No fue posible guardar la solicitud de soporte")
+        raise HTTPException(500, "No fue posible enviar tu solicitud. Inténtalo de nuevo.") from exc
+    return {"id": request.peticion_id, "estado": request.estado, "mensaje": "Solicitud enviada"}
 
 
 @router.get("/pedidos")
