@@ -23,7 +23,6 @@ from app.core.config import settings
 from app.core.cache import cache_health
 from app.core.database import SessionLocal, get_db
 from app.models import Producto, Usuario
-from app.prediction.training_service import training_service
 from app.schemas import ProductResponse, UserResponse
 
 logger = logging.getLogger(__name__)
@@ -32,9 +31,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     if (settings.prediction_train_before_startup
             and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-        # No bloquear el bind del puerto de Render durante el entrenamiento TensorFlow.
-        # La tarea se conserva en app.state y las rutas que necesitan el modelo siguen
-        # comprobando/esperando el entrenamiento mediante training_service.
+        # El entrenamiento es opt-in porque compite con las consultas de usuarios
+        # durante el arranque; cuando se habilita, corre fuera del event loop.
         training_task = asyncio.create_task(
             asyncio.to_thread(_train_monthly_model_before_startup),
             name="monthly-model-startup-training",
@@ -54,7 +52,10 @@ def _log_startup_training(task: asyncio.Task) -> None:
 
 
 def _train_monthly_model_before_startup() -> None:
-    """Block API startup until a monthly TensorFlow model matches the current MySQL history."""
+    """Entrena de forma opcional en segundo plano al habilitar la variable de entorno."""
+    # TensorFlow is imported only if explicit startup training is enabled.
+    from app.prediction.training_service import training_service
+
     with SessionLocal() as db:
         result = training_service.ensure_monthly_model_current(db)
     logger.info("Modelo mensual listo antes del arranque: %s", result)

@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import secrets
 import time
 import hmac
 from datetime import datetime, timezone
+from urllib.parse import parse_qsl, urlencode
 
 import jwt
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -402,6 +405,30 @@ def google_login(payload: OAuthLoginRequest, background_tasks: BackgroundTasks, 
 @router.post("/auth/apple")
 def apple_login(payload: OAuthLoginRequest, background_tasks: BackgroundTasks, request: Request, db: Session = Depends(get_db)):
     return oauth_login("apple", payload, db, background_tasks, request)
+
+
+@router.post("/auth/apple/callback", include_in_schema=False)
+async def apple_android_callback(request: Request):
+    """Relay Apple's form POST back to sign_in_with_apple on Android.
+
+    The app still validates the returned identity token against Apple before
+    creating a session. The destination package is fixed by server config.
+    """
+    package_name = settings.apple_android_package_name.strip()
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+", package_name):
+        raise HTTPException(503, "APPLE_ANDROID_PACKAGE_NAME no está configurado correctamente")
+
+    body = (await request.body()).decode("utf-8", errors="replace")
+    fields = parse_qsl(body, keep_blank_values=True)
+    if not fields:
+        raise HTTPException(400, "Apple no devolvió credenciales de autorización")
+
+    callback_query = urlencode(fields)
+    app_url = (
+        f"intent://callback?{callback_query}"
+        f"#Intent;package={package_name};scheme=signinwithapple;end"
+    )
+    return RedirectResponse(app_url, status_code=303)
 
 def oauth_login(provider: str, payload: OAuthLoginRequest, db: Session, background_tasks: BackgroundTasks | None = None, request: Request | None = None) -> dict:
     claims = _oauth_claims(provider, payload.id_token)

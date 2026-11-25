@@ -149,6 +149,9 @@ def extract_transactions_from_database(db: Session) -> pd.DataFrame:
         .where(Compra.estado == "PAGADO")
     )
     rows = db.execute(query).mappings().all()
+    # Materialize the result and return the scarce DB connection before Pandas
+    # grouping/cleanup starts.
+    db.rollback()
     if not rows:
         return pd.DataFrame(columns=TRANSACTION_COLUMNS)
     raw = pd.DataFrame(rows)

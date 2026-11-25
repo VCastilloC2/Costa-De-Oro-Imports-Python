@@ -27,7 +27,6 @@ from app.core.database import get_db
 from app.prediction.engine import evaluate_recent_months, forecast_month, generate_forecast
 from app.prediction.artifacts import model_store
 from app.prediction.repository import SCOPE_GENERATE, SCOPE_READ
-from app.prediction.training_service import training_service
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +79,11 @@ def _cache_lookup(key: str) -> Any | None:
     return None
 
 
-def cached_prediction(key: str, compute: Callable[[], Any]) -> Any:
+def cached_prediction(
+    key: str,
+    compute: Callable[[], Any],
+    ttl_seconds: int | None = None,
+) -> Any:
     """Devuelve el valor cacheado o lo calcula una sola vez aunque lleguen peticiones simultáneas."""
     value = _cache_lookup(key)
     if value is not None:
@@ -91,7 +94,7 @@ def cached_prediction(key: str, compute: Callable[[], Any]) -> Any:
             return value
         started = time.perf_counter()
         value = compute()
-        ttl = settings.prediction_cache_ttl_seconds
+        ttl = ttl_seconds or settings.prediction_cache_ttl_seconds
         cache_set_json(key, value, ttl)
         _local_cache[key] = (time.monotonic() + ttl, value)
         logger.info("prediccion calculada key=%s en %.1fs (cache %ss)", key, time.perf_counter() - started, ttl)
@@ -114,10 +117,6 @@ def datos_grafica(
     logger.info("spring datos-grafica anios=%s proyeccion=%s by=%s requestId=%s",
                 anios, proyeccion_meses, principal["name"], _request_id(request))
     try:
-        if (settings.prediction_train_before_startup
-                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-            # Revisa la firma actual: solo entrena si MySQL cambió desde la versión activa.
-            training_service.ensure_monthly_model_current(db)
         # Sales change as purchases are paid. Always read the current MySQL aggregates here;
         # a long-lived Valkey/in-process forecast cache made the dashboard look stale.
         # Este endpoint alimenta el dashboard de ventas: debe reflejar MySQL en cada llamada,
@@ -161,10 +160,13 @@ def evaluar_ultimos_meses(
     logger.info("spring evaluar-ultimos-meses meses=%s by=%s requestId=%s",
                 meses, principal["name"], _request_id(request))
     try:
-        if (settings.prediction_train_before_startup
-                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-            training_service.ensure_monthly_model_current(db)
-        return evaluate_recent_months(db, meses)
+        version = model_store.active_version("monthly") or "estadistico"
+        month_key = time.strftime("%Y-%m")
+        return cached_prediction(
+            f"spring:evaluacion:v2:{version}:{month_key}:{meses}",
+            lambda: evaluate_recent_months(db, meses),
+            ttl_seconds=30,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -180,10 +182,7 @@ def generar(
                 payload.anno, payload.mes, principal["name"], _request_id(request))
     try:
         model_version = "statistics"
-        if (settings.prediction_train_before_startup
-                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-            model_state = training_service.ensure_monthly_model_current(db)
-            model_version = model_state.get("model_version", "current")
+        model_version = model_store.active_version("monthly") or "statistics"
         result = cached_prediction(
             f"spring:prediccion:mes:v5:{model_version}:{payload.anno}:{payload.mes}",
             lambda: forecast_month(db, payload.anno, payload.mes),

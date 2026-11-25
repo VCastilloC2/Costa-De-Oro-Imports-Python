@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     valkey_auth_ttl_seconds: int = Field(300, ge=1, le=86400, validation_alias=AliasChoices("VALKEY_AUTH_TTL_SECONDS"))
     prediction_data_source: str = Field("database", validation_alias=AliasChoices("PREDICTION_DATA_SOURCE"))
     prediction_train_before_startup: bool = Field(
-        True, validation_alias=AliasChoices("PREDICTION_TRAIN_BEFORE_STARTUP"))
+        False, validation_alias=AliasChoices("PREDICTION_TRAIN_BEFORE_STARTUP"))
     prediction_dataset_csv: Path = Field(PROJECT_ROOT / "app" / "prediction" / "data" / "costa_de_oro_ventas.csv", validation_alias=AliasChoices("PREDICTION_DATASET_CSV"))
     # --- Servicio ML de predicciones (TensorFlow) ---
     prediction_model_dir: Path = Field(PROJECT_ROOT / "app" / "prediction" / "artifacts", validation_alias=AliasChoices("PREDICTION_MODEL_DIR"))
@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     google_client_secret: str | None = None
     google_allowed_client_ids: str | None = None
     apple_allowed_client_ids: str | None = None
+    apple_android_package_name: str = Field(
+        "com.example.costa_de_oro_imports",
+        validation_alias=AliasChoices("APPLE_ANDROID_PACKAGE_NAME"),
+    )
     remember_me_key: str | None = None
     remember_me_token: str | None = None
     password_url_recaptcha: str = "https://www.google.com/recaptcha/api/siteverify"

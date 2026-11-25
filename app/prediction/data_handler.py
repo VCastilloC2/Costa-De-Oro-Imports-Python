@@ -72,6 +72,8 @@ def load_from_database(db: Session, start: date | None = None, end: date | None 
     if end:
         query = query.where(Compra.fecha < end)
     rows = db.execute(query).mappings().all()
+    # Return MySQL to the pool before converting and grouping the result.
+    db.rollback()
     if not rows:
         return pd.DataFrame(columns=PREDICTION_COLUMNS)
 
@@ -143,8 +145,11 @@ def historical_dashboard_data(db: Session, today: date | None = None) -> dict:
             for row in db.execute(stock_query)
         ]
     except Exception:
+        db.rollback()
         logger.warning("No se pudo cargar el inventario de MySQL; se omite la serie stock_vs_ventas", exc_info=True)
         stock_vs_sales = []
+    else:
+        db.rollback()
     cities = sales.groupby("ciudad_cliente", as_index=False)["venta_total"].sum().sort_values("venta_total", ascending=False)
     return {
         "ventas_mensuales": monthly_rows,

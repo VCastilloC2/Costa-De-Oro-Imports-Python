@@ -1,4 +1,7 @@
 """Administrative endpoints and compatibility CRUD routes."""
+import threading
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,13 +11,11 @@ from app.core.cache import (
     cache_auth_credentials, cache_auth_user, cache_delete, cache_get_json,
     cache_set_json, user_cache_key,
 )
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models import Rol, Usuario
 from app.prediction.data_handler import historical_dashboard_data
 from app.prediction.engine import generate_forecast
-from app.prediction.training_service import training_service
 from app.schemas import AdminCreateRequest, ForecastRequest
 from app.api.v1.endpoints.admin_extra import router as legacy_admin_router
 from app.api.v1.endpoints.admin_graficas import router as admin_graficas_router
@@ -36,6 +37,9 @@ from app.api.v1.endpoints.historia import router as historia_router
 from app.api.v1.endpoints.peticion import router as peticion_router
 
 router = APIRouter()
+_prediction_dashboard_lock = threading.Lock()
+_prediction_dashboard_local_cache: tuple[float, dict] | None = None
+_PREDICTION_DASHBOARD_CACHE_SECONDS = 15
 
 
 @router.get("/admin/usuario/pendientes", tags=["Administración"], dependencies=[Depends(admin_user)])
@@ -94,40 +98,53 @@ def prediction_status():
 
 @router.get("/admin/prediccion/datos-grafica", tags=["Predicción"], dependencies=[Depends(admin_user)])
 def prediction_dashboard(db: Session = Depends(get_db)):
-    cache_key = "dashboard:prediction:v2"
-    auto_refresh = (settings.prediction_train_before_startup
-                    and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"})
-    if not auto_refresh:
+    global _prediction_dashboard_local_cache
+    cache_key = "dashboard:prediction:v3"
+    now = time.monotonic()
+    local = _prediction_dashboard_local_cache
+    if local is not None and local[0] > now:
+        return local[1]
+
+    # Several dashboard cards request prediction data at the same time. Share
+    # the short-lived result and serialize cache misses so they do not all hold
+    # the small MySQL pool while rebuilding the same charts.
+    with _prediction_dashboard_lock:
+        now = time.monotonic()
+        local = _prediction_dashboard_local_cache
+        if local is not None and local[0] > now:
+            return local[1]
         cached = cache_get_json(cache_key)
         if cached is not None:
+            _prediction_dashboard_local_cache = (
+                now + _PREDICTION_DASHBOARD_CACHE_SECONDS, cached)
             return cached
-    try:
-        result = historical_dashboard_data(db)
-        if result["cantidad_compras"]:
-            if (settings.prediction_train_before_startup
-                    and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-                training_service.ensure_monthly_model_current(db)
-            result["proyeccion_ventas"] = generate_forecast(db, years=6, forecast_months=12)["serie"]
-        else:
-            result["proyeccion_ventas"] = []
-    except ValueError as exc:
-        result = {
-            "ventas_mensuales": [], "stock_vs_ventas": [], "ventas_por_ciudad": [],
-            "total_ventas": 0.0, "cantidad_compras": 0, "proyeccion_ventas": [],
-            "mensaje": str(exc),
-        }
-    if not auto_refresh:
-        cache_set_json(cache_key, result, settings.valkey_cache_ttl_seconds)
-    return result
+
+        try:
+            result = historical_dashboard_data(db)
+            if result["cantidad_compras"]:
+                # Inference uses the latest active model when it matches the
+                # sales history and falls back to statistics otherwise. A page
+                # read must never wait for a full TensorFlow training run.
+                result["proyeccion_ventas"] = generate_forecast(
+                    db, years=6, forecast_months=12)["serie"]
+            else:
+                result["proyeccion_ventas"] = []
+        except ValueError as exc:
+            result = {
+                "ventas_mensuales": [], "stock_vs_ventas": [], "ventas_por_ciudad": [],
+                "total_ventas": 0.0, "cantidad_compras": 0, "proyeccion_ventas": [],
+                "mensaje": str(exc),
+            }
+        cache_set_json(cache_key, result, _PREDICTION_DASHBOARD_CACHE_SECONDS)
+        _prediction_dashboard_local_cache = (
+            time.monotonic() + _PREDICTION_DASHBOARD_CACHE_SECONDS, result)
+        return result
 
 
 @router.post("/admin/prediccion/generar", tags=["Predicción"], dependencies=[Depends(admin_user)])
 def generate_prediction(payload: ForecastRequest | None = None, db: Session = Depends(get_db)):
     request = payload or ForecastRequest()
     try:
-        if (settings.prediction_train_before_startup
-                and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-            training_service.ensure_monthly_model_current(db)
         return generate_forecast(db, years=request.anios, forecast_months=request.proyeccion_meses)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
