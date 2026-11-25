@@ -11,7 +11,7 @@ import unicodedata
 from datetime import date, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ from app.core.media import cloudinary_url
 from app.dependencies import admin_user
 from app.models import (Categoria, Compra, DetalleFactura, DetalleVenta, Empresa, FacturaProveedor,
                         Producto, Rol, Usuario)
+from app.services.sales_report_export import build_sales_pdf, build_sales_xlsx
 
 router = APIRouter(prefix="/api/graficas", tags=["Administración"], dependencies=[Depends(admin_user)])
 
@@ -208,6 +209,29 @@ def ingresos_gastos(db: DB, meses: int = Query(12, ge=1, le=120)) -> IngresosGas
             summary="Ventas de los últimos 12 meses por estado (dona)")
 def ventas_totales(db: DB, meses: int = Query(12, ge=1, le=120)) -> VentasTotalesResponse:
     return calcular_ventas_totales(db, meses)
+
+
+@router.get("/ventas-totales/export", summary="Descarga el reporte de ventas totales en PDF o Excel")
+def exportar_ventas_totales(
+    db: DB,
+    formato: str = Query("pdf", alias="format", pattern="^(pdf|xlsx)$"),
+    meses: int = Query(12, ge=1, le=120),
+) -> Response:
+    reporte = calcular_ventas_totales(db, meses)
+    if formato == "pdf":
+        contenido = build_sales_pdf(reporte, meses)
+        media_type = "application/pdf"
+        extension = "pdf"
+    else:
+        contenido = build_sales_xlsx(reporte, meses)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        extension = "xlsx"
+    filename = f"ventas_totales_{date.today():%Y%m%d}.{extension}"
+    return Response(
+        content=contenido,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # --------------------------------------------------------------------------- stock vs ventas
