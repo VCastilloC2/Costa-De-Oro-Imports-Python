@@ -14,6 +14,8 @@ def resolve_runtime_file(configured_path: Path) -> Path:
     candidates = [path]
     if not path.is_absolute():
         candidates.append(PROJECT_ROOT / path)
+    # Local development secrets may be kept under etc/secrets in the project.
+    candidates.append(PROJECT_ROOT / "etc" / "secrets" / path.name)
     # Render Secret Files are mounted read-only at /etc/secrets/<filename>.
     candidates.append(Path("/etc/secrets") / path.name)
     unique_candidates = list(dict.fromkeys(candidates))

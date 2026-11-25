@@ -19,9 +19,12 @@
 **/*.env
 */*.env
 keys/credentials.json
+/etc/secrets/credentials.json
 keys/gmail-token.json
+/etc/secrets/gmail-token.json
 token.json
 keys/*.json
+/etc/secrets/*.json
 
 ### VS Code ###
 .vscode/

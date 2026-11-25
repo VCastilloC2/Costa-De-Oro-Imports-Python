@@ -180,5 +180,14 @@ def send_login_notice(to: str, name: str, occurred_at: str, device: str | None =
     html = render_email("login_successful.html", nombre=name, fecha=occurred_at, dispositivo=device or "No disponible", ubicacion=location or "No disponible")
     try:
         send_email(to, "Nuevo inicio de sesión – Costa De Oro Imports", html, f"Hola {name}, registramos un inicio de sesión el {occurred_at}. Dispositivo: {device or 'No disponible'}. Ubicación: {location or 'No disponible'}. Si no lo reconoces, cambia tu contraseña.")
-    except Exception:
-        logger.exception("No se pudo enviar el aviso de inicio de sesión")
+    except Exception as exc:
+        if not gmail_is_configured():
+            logger.warning(
+                "Se omitió el aviso de inicio de sesión: configura GMAIL_CREDENTIALS_FILE "
+                "y GMAIL_TOKEN_FILE para habilitar el correo"
+            )
+        else:
+            logger.warning(
+                "No se pudo enviar el aviso de inicio de sesión (%s)",
+                type(exc).__name__,
+            )
