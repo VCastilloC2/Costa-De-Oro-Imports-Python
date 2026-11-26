@@ -29,36 +29,47 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if (settings.prediction_train_before_startup
-            and settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}):
-        # El entrenamiento es opt-in porque compite con las consultas de usuarios
-        # durante el arranque; cuando se habilita, corre fuera del event loop.
-        training_task = asyncio.create_task(
-            asyncio.to_thread(_train_monthly_model_before_startup),
-            name="monthly-model-startup-training",
-        )
-        training_task.add_done_callback(_log_startup_training)
-        app.state.prediction_startup_task = training_task
+    if settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}:
+        # Deja el modelo y la respuesta de la pantalla listos antes de aceptar
+        # peticiones. Las consultas de Flutter no deben entrenar ni inferir.
+        await asyncio.to_thread(_prepare_monthly_prediction_snapshot)
     yield
 
 
-def _log_startup_training(task: asyncio.Task) -> None:
-    try:
-        task.result()
-    except Exception:
-        logger.exception("Falló el entrenamiento mensual en segundo plano durante el arranque")
-    else:
-        logger.info("Entrenamiento mensual en segundo plano completado")
-
-
-def _train_monthly_model_before_startup() -> None:
-    """Entrena de forma opcional en segundo plano al habilitar la variable de entorno."""
-    # TensorFlow is imported only if explicit startup training is enabled.
+def _prepare_monthly_prediction_snapshot() -> None:
+    """Ensure a current model and save the ready-to-serve dashboard response."""
     from app.prediction.training_service import training_service
+    from app.prediction.artifacts import model_store
+    from app.prediction.data_handler import historical_dashboard_data
+    from app.prediction.engine import evaluate_recent_months, generate_forecast
+    from app.prediction import repository
 
     with SessionLocal() as db:
-        result = training_service.ensure_monthly_model_current(db)
-    logger.info("Modelo mensual listo antes del arranque: %s", result)
+        training = training_service.ensure_monthly_model_current(db)
+        historical = historical_dashboard_data(db)
+        forecast = generate_forecast(db, years=6, forecast_months=12)
+        # Guarda únicamente los campos usados por la pantalla Flutter: la
+        # respuesta cabe en resumen_json y evita adjuntar inventarios completos.
+        snapshot = {
+            "total_ventas": historical["total_ventas"],
+            "cantidad_compras": historical["cantidad_compras"],
+            "proyeccion_ventas": forecast["serie"],
+        }
+        snapshot["historial_datos"] = forecast["historial_datos"]
+        snapshot["advertencia_modelo"] = forecast.get("advertencia_modelo")
+        snapshot["variables_prediccion"] = forecast.get("variables_prediccion", [])
+        snapshot["metricas"] = forecast.get("metricas", {})
+        try:
+            snapshot["evaluacion"] = evaluate_recent_months(db, months=5)
+        except ValueError as exc:
+            # La gráfica y el modelo siguen disponibles si aún no hay meses
+            # cerrados suficientes para el backtest secundario.
+            snapshot["evaluacion"] = {"error": str(exc), "comparacion": [], "metricas": {}}
+        version = model_store.active_version("monthly")
+        if version is None:
+            raise RuntimeError("No quedó un modelo mensual activo después del entrenamiento")
+        repository.save_dashboard_snapshot(db, "monthly", version, snapshot)
+    logger.info("Modelo mensual y resumen guardados en BD: %s (v%s)", training, version)
 
 app = FastAPI(
     title="Costa De Oro Imports",

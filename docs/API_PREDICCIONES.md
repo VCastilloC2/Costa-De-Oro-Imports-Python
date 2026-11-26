@@ -72,12 +72,11 @@ tiene año y mes, por eso con él sólo se puede entrenar `monthly`.
    o bien `python -m app.prediction.scripts_pred --create-ml-tables`.
 2. Configura en `.env` (ver `.env.example`): `PREDICTION_MODEL_DIR`, `PREDICTION_ALLOWED_ROLES`,
    `PREDICTION_MAX_CONCURRENT`, `PREDICTION_INFERENCE_TIMEOUT_SECONDS`, `PREDICTION_DEDUP_WINDOW_SECONDS`.
-3. Con `PREDICTION_TRAIN_BEFORE_STARTUP=true` (predeterminado), FastAPI inicia la verificación del historial
-   MySQL en segundo plano para enlazar el puerto HTTP sin esperar la inicialización de TensorFlow. Si falta
-   el modelo, cambió la serie o el artefacto usa otra arquitectura, crea una versión nueva con hasta 500
-   épocas y EarlyStopping. El endpoint del gráfico espera/repite la verificación y reentrena sólo si la firma
-   de MySQL cambió. Con datos iguales reutiliza el modelo activo. Las tablas ML deben existir antes del primer
-   arranque.
+3. Con `PREDICTION_DATA_SOURCE=database`, FastAPI espera durante el arranque a que el modelo mensual esté
+   listo. Si falta el modelo, cambió la serie o el artefacto usa otra arquitectura, crea una versión nueva con
+   hasta 500 épocas y EarlyStopping; si los datos no cambiaron, reutiliza el modelo activo. Luego calcula y
+   guarda el resumen de la gráfica en `prediccion_modelo.resumen_json`. Flutter consulta ese resumen y no
+   reentrena ni calcula el pronóstico en cada petición. Las tablas ML deben existir antes del primer arranque.
 4. También se puede iniciar un entrenamiento explícito como ADMIN con `POST /api/v1/predictions/model/train`
    y `{"granularity":"monthly","data_source":"database","epochs":500,"patience":60,"wait":true}`.
    `database` evita usar el CSV de respaldo. Comprueba `preparation.fuente_datos` y `fin_historia`.

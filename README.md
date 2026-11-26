@@ -11,10 +11,10 @@ Copy-Item .env.example .env
 # Completa DB_URL, DB_USERNAME, DB_PASSWORD y secretos de proveedores
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-Con `PREDICTION_TRAIN_BEFORE_STARTUP=true`, el arranque inicia en segundo plano la comprobación y el
-entrenamiento mensual de MySQL (hasta 500 épocas, con parada temprana), así el servidor puede enlazar
-su puerto antes de que termine TensorFlow. Si cambian las ventas, vuelve a entrenar antes de usar el
-modelo; asegúrate de crear primero las tablas ML descritas en `docs/API_PREDICCIONES.md`.
+Con fuente `database`, FastAPI verifica el modelo mensual durante el arranque y lo entrena (hasta 500
+épocas, con parada temprana) si no existe o cambiaron las ventas. Antes de aceptar consultas también
+guarda en MySQL el resumen listo para Flutter. Las consultas de la pantalla leen ese resumen, sin volver
+a entrenar ni generar el pronóstico. Crea primero las tablas ML descritas en `docs/API_PREDICCIONES.md`.
 Docs: `/docs`; OpenAPI JSON: `/openapi.json`; alternativa ReDoc: `/redoc`.
 
 ## MySQL existente

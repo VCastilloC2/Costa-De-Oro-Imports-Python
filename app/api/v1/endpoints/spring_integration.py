@@ -27,6 +27,7 @@ from app.core.database import get_db
 from app.prediction.engine import evaluate_recent_months, forecast_month, generate_forecast
 from app.prediction.artifacts import model_store
 from app.prediction.repository import SCOPE_GENERATE, SCOPE_READ
+from app.prediction import repository
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,11 @@ def evaluar_ultimos_meses(
 ) -> dict:
     logger.info("spring evaluar-ultimos-meses meses=%s by=%s requestId=%s",
                 meses, principal["name"], _request_id(request))
+    if settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}:
+        snapshot = repository.get_dashboard_snapshot(db, "monthly")
+        if snapshot is None or snapshot.get("evaluacion") is None:
+            raise HTTPException(503, "La evaluación guardada aún no está disponible; reinicia FastAPI para actualizarla")
+        return snapshot["evaluacion"]
     try:
         version = model_store.active_version("monthly") or "estadistico"
         month_key = time.strftime("%Y-%m")

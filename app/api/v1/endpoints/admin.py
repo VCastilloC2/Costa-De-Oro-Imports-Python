@@ -12,10 +12,12 @@ from app.core.cache import (
     cache_set_json, user_cache_key,
 )
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.security import hash_password
 from app.models import Rol, Usuario
 from app.prediction.data_handler import historical_dashboard_data
 from app.prediction.engine import generate_forecast
+from app.prediction import repository
 from app.schemas import AdminCreateRequest, ForecastRequest
 from app.api.v1.endpoints.admin_extra import router as legacy_admin_router
 from app.api.v1.endpoints.admin_graficas import router as admin_graficas_router
@@ -98,6 +100,12 @@ def prediction_status():
 
 @router.get("/admin/prediccion/datos-grafica", tags=["Predicción"], dependencies=[Depends(admin_user)])
 def prediction_dashboard(db: Session = Depends(get_db)):
+    if settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}:
+        snapshot = repository.get_dashboard_snapshot(db, "monthly")
+        if snapshot is None:
+            raise HTTPException(503, "El resumen de predicción aún no está guardado; reinicia FastAPI para actualizarlo")
+        return snapshot
+
     global _prediction_dashboard_local_cache
     cache_key = "dashboard:prediction:v3"
     now = time.monotonic()
@@ -143,6 +151,12 @@ def prediction_dashboard(db: Session = Depends(get_db)):
 
 @router.post("/admin/prediccion/generar", tags=["Predicción"], dependencies=[Depends(admin_user)])
 def generate_prediction(payload: ForecastRequest | None = None, db: Session = Depends(get_db)):
+    if settings.prediction_data_source.strip().lower() in {"db", "database", "mysql", "postgresql"}:
+        snapshot = repository.get_dashboard_snapshot(db, "monthly")
+        if snapshot is None:
+            raise HTTPException(503, "El resumen de predicción aún no está guardado; reinicia FastAPI para actualizarlo")
+        return snapshot
+
     request = payload or ForecastRequest()
     try:
         return generate_forecast(db, years=request.anios, forecast_months=request.proyeccion_meses)

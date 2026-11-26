@@ -186,6 +186,38 @@ def list_models(db: Session, granularity: str | None = None) -> list[PrediccionM
         _fail(db, exc)
 
 
+def save_dashboard_snapshot(db: Session, granularity: str, version: int, snapshot: dict) -> None:
+    """Persist the precomputed dashboard response on its active model row."""
+    try:
+        row = db.scalar(select(PrediccionModelo).where(
+            PrediccionModelo.granularidad == granularity,
+            PrediccionModelo.version == version,
+            PrediccionModelo.estado == "ACTIVO",
+        ))
+        if row is None:
+            raise HistoryUnavailableError("No existe un modelo activo donde guardar el resumen de predicción")
+        summary = loads(row.resumen_json, {}) or {}
+        summary["dashboard_snapshot"] = snapshot
+        summary["dashboard_updated_at"] = now().isoformat()
+        row.resumen_json = dumps(summary)
+        db.commit()
+    except SQLAlchemyError as exc:
+        _fail(db, exc)
+
+
+def get_dashboard_snapshot(db: Session, granularity: str = "monthly") -> dict | None:
+    """Read the last startup-generated dashboard response from the model registry."""
+    try:
+        row = db.scalar(select(PrediccionModelo).where(
+            PrediccionModelo.granularidad == granularity,
+            PrediccionModelo.estado == "ACTIVO",
+        ).order_by(PrediccionModelo.version.desc()).limit(1))
+        summary = loads(row.resumen_json, {}) if row else {}
+        return summary.get("dashboard_snapshot") if isinstance(summary, dict) else None
+    except SQLAlchemyError as exc:
+        _fail(db, exc)
+
+
 # --------------------------------------------------------------------------- historial
 
 def find_duplicate(db: Session, request_key: str, window_seconds: int) -> PrediccionHistorial | None:
