@@ -159,9 +159,21 @@ def generate_prediction(payload: ForecastRequest | None = None, db: Session = De
 
     request = payload or ForecastRequest()
     try:
-        return generate_forecast(db, years=request.anios, forecast_months=request.proyeccion_meses)
+        result = generate_forecast(
+            db,
+            years=request.anios,
+            forecast_months=request.proyeccion_meses,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+    # La pantalla Flutter vuelve a consultar esta serie después del POST. Evita
+    # que el caché corto de GET devuelva la proyección calculada antes del POST.
+    global _prediction_dashboard_local_cache
+    with _prediction_dashboard_lock:
+        _prediction_dashboard_local_cache = None
+        cache_delete("dashboard:prediction:v3")
+    return result
 
 
 # Cache is short-lived and cleared whenever a user is explicitly deactivated/reactivated here.
