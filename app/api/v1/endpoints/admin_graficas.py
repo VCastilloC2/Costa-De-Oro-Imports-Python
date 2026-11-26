@@ -7,17 +7,20 @@ Mismas rutas y mismo JSON que ``/api/graficas/*`` en Spring (``GraficaServiceImp
 """
 from __future__ import annotations
 
+import threading
+import time
 import unicodedata
 from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import extract, func, select
+from sqlalchemy import and_, case, extract, func, select
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.dashboard_integration import (
     IngresosGastosResponse, VentasTotalesResponse, calcular_ingresos_gastos, calcular_ventas_totales,
 )
+from app.core.cache import cache_get_json, cache_set_json
 from app.core.database import get_db
 from app.core.media import cloudinary_url
 from app.dependencies import admin_user
@@ -26,6 +29,10 @@ from app.models import (Categoria, Compra, DetalleFactura, DetalleVenta, Empresa
 from app.services.sales_report_export import build_sales_pdf, build_sales_xlsx
 
 router = APIRouter(prefix="/api/graficas", tags=["Administración"], dependencies=[Depends(admin_user)])
+
+_DASHBOARD_BUNDLE_TTL_SECONDS = 30
+_dashboard_bundle_lock = threading.Lock()
+_dashboard_bundle_local: dict[int, tuple[float, dict]] = {}
 
 DB = Annotated[Session, Depends(get_db)]
 
@@ -61,11 +68,6 @@ def _suma(db: Session, columna, *condiciones) -> float:
     return float(db.scalar(select(func.coalesce(func.sum(columna), 0)).where(*condiciones)) or 0)
 
 
-def _semestre(db: Session, col_fecha, col_total, activo, anio: int, meses: tuple[int, int]) -> float:
-    return _suma(db, col_total, activo, extract("year", col_fecha) == anio,
-                 extract("month", col_fecha).between(*meses))
-
-
 def _progreso(actual: float, proyeccion: float) -> int:
     if proyeccion == 0:
         return 0
@@ -79,14 +81,36 @@ def _variacion(actual: float, anterior: float) -> float:
 def estadisticas_generales(db: Session, hoy: date | None = None) -> dict:
     """``GraficaServiceImpl.obtenerEstadisticasGenerales``: semestre actual (ene-jun) vs. jul-dic del año anterior."""
     anio = (hoy or date.today()).year
-    pagado, activa = Compra.estado == "PAGADO", FacturaProveedor.activo.is_(True)
-    ingresos = _semestre(db, Compra.fecha, Compra.total, pagado, anio, (1, 6))
-    gastos = _semestre(db, FacturaProveedor.fecha_emision, FacturaProveedor.total, activa, anio, (1, 6))
+    compra_year = extract("year", Compra.fecha)
+    compra_month = extract("month", Compra.fecha)
+    compras = db.execute(select(
+        func.coalesce(func.sum(case((and_(
+            Compra.estado == "PAGADO", compra_year == anio,
+            compra_month.between(1, 6),
+        ), Compra.total), else_=0)), 0).label("ingresos"),
+        func.coalesce(func.sum(case((and_(
+            Compra.estado == "PAGADO", compra_year == anio - 1,
+            compra_month.between(7, 12),
+        ), Compra.total), else_=0)), 0).label("ingresos_ant"),
+    )).one()
+    factura_year = extract("year", FacturaProveedor.fecha_emision)
+    factura_month = extract("month", FacturaProveedor.fecha_emision)
+    facturas = db.execute(select(
+        func.coalesce(func.sum(case((and_(
+            FacturaProveedor.activo.is_(True), factura_year == anio,
+            factura_month.between(1, 6),
+        ), FacturaProveedor.total), else_=0)), 0).label("gastos"),
+        func.coalesce(func.sum(case((and_(
+            FacturaProveedor.activo.is_(True), factura_year == anio - 1,
+            factura_month.between(7, 12),
+        ), FacturaProveedor.total), else_=0)), 0).label("gastos_ant"),
+    )).one()
+    ingresos = float(compras.ingresos or 0)
+    ingresos_ant = float(compras.ingresos_ant or 0)
+    gastos = float(facturas.gastos or 0)
+    gastos_ant = float(facturas.gastos_ant or 0)
     stock = int(db.scalar(select(func.coalesce(func.sum(Producto.stock), 0)).where(Producto.activo.is_(True))) or 0)
     beneficio = ingresos - gastos
-
-    ingresos_ant = _semestre(db, Compra.fecha, Compra.total, pagado, anio - 1, (7, 12))
-    gastos_ant = _semestre(db, FacturaProveedor.fecha_emision, FacturaProveedor.total, activa, anio - 1, (7, 12))
     beneficio_ant = ingresos_ant - gastos_ant
 
     proy_ingresos, proy_gastos, proy_beneficio = ingresos_ant * 1.05, gastos_ant * 1.05, beneficio_ant * 1.05
@@ -171,24 +195,35 @@ def _usuario_publico(usuario: Usuario, db: Session) -> dict:
 @router.get("/dashboard", summary="Tarjetas, estadísticas, top productos y compras recientes")
 def dashboard(usuario: Annotated[Usuario, Depends(admin_user)], db: DB) -> dict:
     anio = date.today().year
-    pagado_este_anio = (Compra.estado == "PAGADO", extract("year", Compra.fecha) == anio)
-    pagado_anio_anterior = (Compra.estado == "PAGADO", extract("year", Compra.fecha) == anio - 1)
-    clientes_anio_anterior = db.scalar(
-        select(func.count(func.distinct(Compra.usuario_id)))
+    year = extract("year", Compra.fecha)
+    current_paid = and_(Compra.estado == "PAGADO", year == anio)
+    prior_year = year == anio - 1
+    prior_paid = and_(Compra.estado == "PAGADO", prior_year)
+    purchase_totals = db.execute(
+        select(
+            func.coalesce(func.sum(case((current_paid, Compra.total), else_=0)), 0)
+            .label("ingresoAnual"),
+            func.coalesce(func.sum(case((current_paid, 1), else_=0)), 0)
+            .label("comprasAnuales"),
+            func.coalesce(func.sum(case((prior_year, 1), else_=0)), 0)
+            .label("comprasAnioAnterior"),
+            func.count(func.distinct(case((
+                and_(prior_paid, Rol.rol.in_(ROLES_CLIENTE)), Compra.usuario_id,
+            ), else_=None))).label("clientesAnioAnterior"),
+        )
         .select_from(Compra)
-        .join(Usuario, Usuario.usuario_id == Compra.usuario_id)
-        .join(Rol, Rol.rol_id == Usuario.rol_id)
-        .where(*pagado_anio_anterior, Rol.rol.in_(ROLES_CLIENTE))
-    ) or 0
+        .outerjoin(Usuario, Usuario.usuario_id == Compra.usuario_id)
+        .outerjoin(Rol, Rol.rol_id == Usuario.rol_id)
+    ).one()
     return {
         "usuario": _usuario_publico(usuario, db),
         "urlImagenUsuario": cloudinary_url(usuario.imagen),
-        "ingresoAnual": _suma(db, Compra.total, *pagado_este_anio),
-        "comprasAnuales": int(db.scalar(select(func.count()).select_from(Compra).where(*pagado_este_anio)) or 0),
-        "comprasAnioAnterior": int(db.scalar(select(func.count()).select_from(Compra).where(*pagado_anio_anterior)) or 0),
+        "ingresoAnual": float(purchase_totals.ingresoAnual or 0),
+        "comprasAnuales": int(purchase_totals.comprasAnuales or 0),
+        "comprasAnioAnterior": int(purchase_totals.comprasAnioAnterior or 0),
         # No hay fecha de alta de usuario en el modelo; se informa clientes activos (con compra pagada)
         # durante el año previo, que es el único indicador histórico fiable disponible.
-        "clientesAnioAnterior": int(clientes_anio_anterior),
+        "clientesAnioAnterior": int(purchase_totals.clientesAnioAnterior or 0),
         "totalClientes": int(db.scalar(
             select(func.count()).select_from(Usuario).join(Rol, Rol.rol_id == Usuario.rol_id)
             .where(Rol.rol.in_(ROLES_CLIENTE))) or 0),
@@ -209,6 +244,53 @@ def ingresos_gastos(db: DB, meses: int = Query(12, ge=1, le=120)) -> IngresosGas
             summary="Ventas de los últimos 12 meses por estado (dona)")
 def ventas_totales(db: DB, meses: int = Query(12, ge=1, le=120)) -> VentasTotalesResponse:
     return calcular_ventas_totales(db, meses)
+
+
+@router.get("/dashboard-completo", summary="Resumen agregado del dashboard en una sola consulta HTTP")
+def dashboard_completo(
+    usuario: Annotated[Usuario, Depends(admin_user)],
+    db: DB,
+) -> dict:
+    """Reduce llamadas repetidas desde Flutter con un cache corto por administrador."""
+    user_id = int(usuario.usuario_id)
+    cache_key = f"dashboard:bundle:v1:{user_id}"
+    now = time.monotonic()
+    local = _dashboard_bundle_local.get(user_id)
+    if local is not None and local[0] > now:
+        return local[1]
+
+    with _dashboard_bundle_lock:
+        now = time.monotonic()
+        local = _dashboard_bundle_local.get(user_id)
+        if local is not None and local[0] > now:
+            return local[1]
+        cached = cache_get_json(cache_key)
+        if isinstance(cached, dict):
+            _dashboard_bundle_local[user_id] = (
+                now + _DASHBOARD_BUNDLE_TTL_SECONDS,
+                cached,
+            )
+            return cached
+
+        result = {
+            "dashboard": dashboard(usuario, db),
+            "ingresosGastos": calcular_ingresos_gastos(db, 12).model_dump(),
+            "ventasTotales": calcular_ventas_totales(db, 12).model_dump(),
+        }
+        cache_set_json(cache_key, result, _DASHBOARD_BUNDLE_TTL_SECONDS)
+        _dashboard_bundle_local[user_id] = (
+            time.monotonic() + _DASHBOARD_BUNDLE_TTL_SECONDS,
+            result,
+        )
+        if len(_dashboard_bundle_local) > 256:
+            now = time.monotonic()
+            expired = [key for key, (expires, _) in _dashboard_bundle_local.items()
+                       if expires <= now]
+            for key in expired:
+                _dashboard_bundle_local.pop(key, None)
+            while len(_dashboard_bundle_local) > 256:
+                _dashboard_bundle_local.pop(next(iter(_dashboard_bundle_local)))
+        return result
 
 
 @router.get("/ventas-totales/export", summary="Descarga el reporte de ventas totales en PDF o Excel")
