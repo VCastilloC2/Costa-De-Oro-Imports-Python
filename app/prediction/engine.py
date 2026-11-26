@@ -48,7 +48,6 @@ def _prediction_variables(source: str) -> list[dict[str, str]]:
     )
     return [{**by_name[name], "fuente": source_name} for name in display_order if name in by_name]
 
-
 def _monthly_forecast(model: SalesEnsemble, data: pd.DataFrame, year: int, month: int) -> float:
     historical = data[data["mes"] == month]
     if historical.empty:
@@ -56,7 +55,6 @@ def _monthly_forecast(model: SalesEnsemble, data: pd.DataFrame, year: int, month
     years_with_data = max(int(historical["anno"].nunique()), 1)
     target = historical.assign(anno=year)
     return max(float(model.predict(target).sum() / years_with_data), 0.0)
-
 
 def evaluate(data: pd.DataFrame, current_year: int) -> dict | None:
     years = sorted(int(value) for value in data["anno"].unique() if int(value) < current_year)

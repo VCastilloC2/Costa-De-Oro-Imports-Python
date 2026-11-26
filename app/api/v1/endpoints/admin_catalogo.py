@@ -148,7 +148,6 @@ class SubCategoriaProductoResponse(CamelModel):
     nombre: str | None
     categoria_id: int
 
-
 class ProveedorProductoResponse(CamelModel):
     id: int
     nombre_empresa: str

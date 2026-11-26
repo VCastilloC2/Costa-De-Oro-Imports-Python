@@ -13,7 +13,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 from app.models.entities import PK_ID
 
-
 class PrediccionModelo(Base):
     """Registro de cada versión entrenada del modelo TensorFlow."""
     __tablename__ = "prediccion_modelo"
@@ -38,7 +37,6 @@ class PrediccionModelo(Base):
     ruta_artefactos: Mapped[str | None] = mapped_column(String(500))
     resumen_json: Mapped[str | None] = mapped_column(Text)
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuario.usuario_id"))
-
     __table_args__ = (Index("ix_prediccion_modelo_gran_ver", "granularidad", "version", unique=True),)
 
 

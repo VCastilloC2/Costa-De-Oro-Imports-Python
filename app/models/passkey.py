@@ -8,7 +8,6 @@ from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.core.database import Base
 from app.models.entities import PK_ID
 
@@ -31,7 +30,6 @@ class PasskeyCredencial(Base):
     fecha_creacion: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ultimo_uso: Mapped[datetime | None] = mapped_column(DateTime)
 
-
 class PasskeyChallenge(Base):
     """Respaldo de challenges cuando Valkey no está disponible (un solo uso, con expiración)."""
     __tablename__ = "passkey_challenge"
@@ -39,9 +37,7 @@ class PasskeyChallenge(Base):
     tipo: Mapped[str] = mapped_column(String(20), nullable=False)  # registro | login
     datos_json: Mapped[str] = mapped_column(Text, nullable=False)
     expira_en: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-
     __table_args__ = (Index("ix_passkey_challenge_expira", "expira_en"),)
-
 
 class BiometricCredential(Base):
     """Secreto del dispositivo (hash solamente); nunca almacena datos biométricos."""

@@ -170,7 +170,6 @@ def evaluar_ultimos_meses(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
-
 @router.post("/generar", response_model=RespuestaPrediccion, summary="Venta prevista para un mes")
 def generar(
     payload: SolicitudPrediccion,
