@@ -87,7 +87,7 @@ def fit_network(model, data, config: TrainingConfig, on_epoch_end: Callable[[int
     # start_from_epoch evita que el ruido de las primeras épocas (pocos datos) detenga el ajuste
     # antes de que la red aprenda; los mejores pesos se eligen a partir de esa época.
     callbacks = [tf.keras.callbacks.EarlyStopping(
-        monitor="val_loss", patience=500, restore_best_weights=True, min_delta=1e-6,
+        monitor="val_loss", patience=config.patience, restore_best_weights=True, min_delta=1e-6,
         start_from_epoch=min(config.start_from_epoch, max(0, config.epochs // 2)))]
     if on_epoch_end is not None:
         callbacks.append(tf.keras.callbacks.LambdaCallback(
